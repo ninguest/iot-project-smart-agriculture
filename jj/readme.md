@@ -32,18 +32,16 @@ Ensure your PC has Python installed and install `mpremote` for Pico communicatio
 
 pip install mpremote paho-mqtt
 Example:
+mosquitto -c mosquitto.conf -v
 
-mosquitto -c C:\Users\junji\Desktop\IOT\iot-project-smart-agriculture\mosquitto.conf -v
+### Check MQTT Messages
+mosquitto_sub -h 192.168.193.167 -t "wled/508610/#" -v
 
 To Put Wled_controller.py into Pico
 ### COM10 Is JJ port
 
 python -m mpremote connect COM10 fs cp wled_controller.py :
 
-### Check MQTT Messages
-mosquitto_sub -h 192.168.193.167 -t "wled/508610/#" -v
-### Turn On Wled
-mosquitto_pub -h 192.168.193.167 -t "wled/508610" -m "ON"
 
 ### Go to CMD Prompt
 python -m mpremote connect COM10

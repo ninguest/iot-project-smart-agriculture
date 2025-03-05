@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WLED Controller</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 500px;
+            margin: auto;
+            padding: 20px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0px 4px 10px rgba(0,0,0,0.1);
+        }
+        .btn {
+            padding: 10px;
+            margin: 10px;
+            cursor: pointer;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            color: white;
+        }
+        .btn-on { background-color: green; }
+        .btn-off { background-color: red; }
+        .btn:hover { opacity: 0.8; }
+        .input-group {
+            margin: 15px 0;
+            text-align: left;
+        }
+        label {
+            display: block;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        #status {
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 5px;
+            display: none;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>🌈 WLED Controller</h2>
+        
+        <!-- ON/OFF Buttons -->
+        <button class="btn btn-on" onclick="toggleWLED('on')">Turn ON</button>
+        <button class="btn btn-off" onclick="toggleWLED('off')">Turn OFF</button>
+
+        <!-- Color Picker -->
+        <div class="input-group">
+            <label for="color">Select Color:</label>
+            <input type="color" id="color" value="#ff0000" onchange="changeColor()">
+        </div>
+
+        <!-- Effect Selector -->
+        <div class="input-group">
+            <label for="effect">Select Effect:</label>
+            <select id="effect" onchange="changeEffect()">
+                <option value="0">Solid</option>
+                <option value="1">Blink</option>
+                <option value="2">Breathe</option>
+                <option value="3">Wipe</option>
+                <option value="4">Scan</option>
+                <option value="5">Chase</option>
+                <option value="6">Rainbow</option>
+                <option value="7">Fire</option>
+                <option value="8">Twinkle</option>
+                <option value="9">Strobe</option>
+            </select>
+        </div>
+
+        <!-- Brightness Slider -->
+        <div class="input-group">
+            <label for="brightness">Brightness:</label>
+            <input type="range" id="brightness" min="0" max="255" value="128" onchange="changeBrightness()">
+            <span id="brightness-value">128</span>
+        </div>
+
+        <!-- Status Message -->
+        <div id="status"></div>
+    </div>
+
+    <script>
+        // Show status message
+        function showStatus(message, isError = false) {
+            const statusElement = document.getElementById("status");
+            statusElement.textContent = message;
+            statusElement.className = isError ? "error" : "success";
+            statusElement.style.display = "block";
+            
+            // Hide after 3 seconds
+            setTimeout(() => {
+                statusElement.style.display = "none";
+            }, 3000);
+        }
+
+        // Create a proxy function to handle CORS issues
+        async function fetchWithProxy(url, options) {
+            try {
+                // Instead of directly hitting the external server, you could:
+                // 1. Use a CORS proxy (for development only)
+                const proxyUrl = 'https://cors-anywhere.herokuapp.com/';
+                const response = await fetch(proxyUrl + url, options);
+                return response;
+            } catch (error) {
+                console.error("Fetch error:", error);
+                showStatus("Network error: " + error.message, true);
+                throw error;
+            }
+        }
+
+        // Using server endpoint that matches working Postman requests
+        const BASE_URL = "http://192.168.193.163:5000/wled";
+        // Turn WLED ON/OFF - Matching Postman format
+        function toggleWLED(state) {
+            fetchWithProxy(`${BASE_URL}/${state}`, { 
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                }
+            })
+            .then(response => response.text())
+            .then(data => showStatus(`WLED turned ${state.toUpperCase()}`))
+            .catch(error => {
+                console.error("Error:", error);
+                showStatus("Error controlling WLED", true);
+            });
+        }
+
+        // Change WLED Color - Matching Postman format
+        function changeColor() {
+            const color = document.getElementById("color").value;
+            
+            fetchWithProxy(`${BASE_URL}/color`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({ color: color })  // Including # symbol as shown in Postman
+            })
+            .then(response => response.text())
+            .then(data => showStatus(`Color set to ${color}`))
+            .catch(error => {
+                console.error("Error:", error);
+                showStatus("Error setting color", true);
+            });
+        }
+
+        // Change WLED Effect - Matching Postman format
+        function changeEffect() {
+            const effect = document.getElementById("effect").value;
+            
+            fetchWithProxy(`${BASE_URL}/effect`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({ effect: effect })  // Sending as string to match Postman
+            })
+            .then(response => response.text())
+            .then(data => {
+                const effectName = document.getElementById("effect").options[document.getElementById("effect").selectedIndex].text;
+                showStatus(`Effect set to ${effectName}`);
+            })
+            .catch(error => {
+                console.error("Error:", error);
+                showStatus("Error setting effect", true);
+            });
+        }
+
+        // Change WLED Brightness - Matching Postman format
+        function changeBrightness() {
+            const brightness = document.getElementById("brightness").value;
+            document.getElementById("brightness-value").innerText = brightness;
+            
+            fetchWithProxy(`${BASE_URL}/brightness`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({ brightness: brightness.toString() })  // Sending as string to match Postman
+            })
+            .then(response => response.text())
+            .then(data => showStatus(`Brightness set to ${brightness}`))
+            .catch(error => {
+                console.error("Error:", error);
+                showStatus("Error setting brightness", true);
+            });
+        }
+    </script>
+</body>
+</html>
