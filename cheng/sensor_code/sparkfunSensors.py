@@ -6,14 +6,12 @@ import json
 from machine import Pin, I2C
 
 # Wi-Fi configuration
-SSID = "T"
-PASSWORD = "Teet123time909"
+SSID = "SSID"
+PASSWORD = "PASSWORD"
 
 # Server configuration
-SERVER_IP = "192.168.1.8"  # Change to your server's IP address
-SERVER_PORT = 3000
-API_URL = f"http://{SERVER_IP}:{SERVER_PORT}/sensors"
-DEVICE_ID = "test_pico_simulator"
+API_URL = "https://iot.ycstation.work/sensors"
+DEVICE_ID = "Sparkfun_Pico"
 
 # Define FS3000 constants
 FS3000_ADDRESS = 0x28  # Default I2C address for FS3000
@@ -71,50 +69,6 @@ def connect_wifi():
         print(f"IP address: {status[0]}")
         return True
 
-def generate_sensor_data():
-    """Generate simulated sensor data"""
-    # Base values
-    temperature_base = 22.0
-    humidity_base = 45.0
-    air_velocity_base = 1.5
-    pressure_base = 1013.25
-    light_base = 500
-    
-    # Add some random variations
-    temperature = temperature_base + (random.random() * 4 - 2)  # +/- 2 degrees
-    humidity = humidity_base + (random.random() * 10 - 5)  # +/- 5%
-    air_velocity = air_velocity_base + (random.random() * 1 - 0.5)  # +/- 0.5 m/s
-    pressure = pressure_base + (random.random() * 10 - 5)  # +/- 5 hPa
-    light = light_base + (random.random() * 200 - 100)  # +/- 100 lux
-    
-    # Ensure values are within reasonable ranges
-    humidity = max(0, min(100, humidity))
-    air_velocity = max(0, air_velocity)
-    light = max(0, light)
-    
-    return {
-        "temperature": {
-            "value": round(temperature, 1),
-            "unit": "C"
-        },
-        "humidity": {
-            "value": round(humidity, 1),
-            "unit": "%"
-        },
-        "air_velocity": {
-            "value": round(air_velocity, 2),
-            "unit": "m/s"
-        },
-        "pressure": {
-            "value": round(pressure, 2),
-            "unit": "hPa"
-        },
-        "light": {
-            "value": round(light),
-            "unit": "lux"
-        }
-    }
-
 def send_data_to_server(sensor_data):
     """Send sensor data to the server"""
     try:
@@ -123,11 +77,11 @@ def send_data_to_server(sensor_data):
             "device_id": DEVICE_ID,
             "sensors": sensor_data
         }
-        
-        print(f"Sending data to server: {data}")
-        
+                
         # Convert to JSON string
         json_data = json.dumps(data)
+        
+        print(f"Sending data to server: {json_data}")  # Print actual JSON sent
         
         # Send HTTP POST request
         response = urequests.post(
@@ -137,6 +91,15 @@ def send_data_to_server(sensor_data):
         )
         
         print(f"Server response: {response.status_code}")
+        
+        # Add this to see error details
+        if response.status_code != 200:
+            try:
+                error_data = response.json()
+                print(f"Error details: {error_data}")
+            except:
+                print(f"Response text: {response.text}")
+        
         response.close()
         
         # Blink LED to indicate successful transmission
@@ -164,17 +127,20 @@ def send_data_to_server(sensor_data):
 # ----------------------- #
 
 def read_fs3000():
-    # Read 2 bytes from the velocity register
-    data = i2c.readfrom_mem(FS3000_ADDRESS, FS3000_VELOCITY_REG, 2)
-    
-    # Convert the 2 bytes to a 16-bit integer (big-endian)
-    raw_value = (data[0] << 8) | data[1]
-    
-    # Calculate velocity in meters per second
-    # Note: This conversion may need adjustment based on your specific sensor configuration
-    velocity_mps = convert_raw_to_velocity(raw_value)
-    
-    return velocity_mps
+    try:
+        # Read 2 bytes from the velocity register
+        data = i2c.readfrom_mem(FS3000_ADDRESS, FS3000_VELOCITY_REG, 2)
+        
+        # Convert the 2 bytes to a 16-bit integer (big-endian)
+        raw_value = (data[0] << 8) | data[1]
+        
+        # Calculate velocity in meters per second
+        velocity_mps = convert_raw_to_velocity(raw_value)
+        
+        return velocity_mps
+    except Exception as e:
+        print(f"Error reading FS3000: {e}")
+        return 0.0
 
 def convert_raw_to_velocity(raw_value):
     # Check which version of sensor (7.5 m/s or 15 m/s)
@@ -221,51 +187,87 @@ def calculate_crc(data):
                 crc = crc << 1
     return crc & 0xFF
 
-def send_command(command):
-    """Send command to SCD41"""
-    i2c.writeto(SCD41_ADDRESS, command)
-    
-def send_command_with_args(command, arguments):
-    """Send command with arguments to SCD41"""
+def send_command_with_retry(command, retries=3, delay=0.5):
+    """Send command to SCD41 with retries"""
+    for attempt in range(retries):
+        try:
+            i2c.writeto(SCD41_ADDRESS, command)
+            return True
+        except OSError as e:
+            print(f"Command failed (attempt {attempt+1}/{retries}): {e}")
+            time.sleep(delay)  # Wait before retry
+    print("Command failed after all retries")
+    return False
+
+def send_command_with_args_retry(command, arguments, retries=3, delay=0.5):
+    """Send command with arguments to SCD41 with retries"""
     buffer = bytearray(command)
     buffer.extend(arguments)
     buffer.append(calculate_crc(arguments))
-    i2c.writeto(SCD41_ADDRESS, buffer)
     
+    for attempt in range(retries):
+        try:
+            i2c.writeto(SCD41_ADDRESS, buffer)
+            return True
+        except OSError as e:
+            print(f"Command with args failed (attempt {attempt+1}/{retries}): {e}")
+            time.sleep(delay)  # Wait before retry
+    print("Command with args failed after all retries")
+    return False
+
 def read_data(command, length=3):
     """Read data from SCD41 with proper CRC checking"""
-    send_command(command)
-    # SCD41 needs time to process the read command
-    time.sleep(0.001)
-    data = i2c.readfrom(SCD41_ADDRESS, length)
-    return data
+    try:
+        if not send_command_with_retry(command):
+            return None
+        
+        # SCD41 needs time to process the read command
+        time.sleep(0.001)
+        
+        try:
+            data = i2c.readfrom(SCD41_ADDRESS, length)
+            return data
+        except OSError as e:
+            print(f"Error reading data: {e}")
+            return None
+    except Exception as e:
+        print(f"General error in read_data: {e}")
+        return None
 
 def start_periodic_measurement():
     """Start periodic measurement"""
-    send_command(CMD_START_PERIODIC_MEASUREMENT)
-    # Wait for the first measurement (5 seconds)
-    time.sleep(5)
+    if send_command_with_retry(CMD_START_PERIODIC_MEASUREMENT):
+        # Wait for the first measurement (5 seconds)
+        print("Starting periodic measurement...")
+        time.sleep(5)
+        return True
+    return False
 
 def stop_periodic_measurement():
     """Stop periodic measurement"""
-    send_command(CMD_STOP_PERIODIC_MEASUREMENT)
-    time.sleep(0.5)  # Give it time to process the stop command
+    if send_command_with_retry(CMD_STOP_PERIODIC_MEASUREMENT):
+        time.sleep(0.5)  # Give it time to process the stop command
+        return True
+    return False
 
 def read_measurement():
     """Read and process measurement data"""
     try:
         data = read_data(CMD_READ_MEASUREMENT, 9)
         
-        # Check if data is valid (should be 9 bytes)
-        if len(data) != 9:
-            print(f"Invalid data length: {len(data)}")
+        # Check if data is valid
+        if data is None or len(data) != 9:
+            if data is None:
+                print("No data received")
+            else:
+                print(f"Invalid data length: {len(data)}")
             return None, None, None
         
         # Parse CO2 (first 2 bytes + CRC)
         co2 = (data[0] << 8) | data[1]
         # Verify CRC for CO2
         if calculate_crc(data[0:2]) != data[2]:
-            # Instead of printing error, we'll just continue
+            # Just continue without printing error
             pass
         
         # Parse temperature (next 2 bytes + CRC)
@@ -273,7 +275,7 @@ def read_measurement():
         temperature = -45 + 175 * temp_raw / 65535
         # Verify CRC for temperature
         if calculate_crc(data[3:5]) != data[5]:
-            # Instead of printing error, we'll just continue
+            # Just continue without printing error
             pass
         
         # Parse humidity (next 2 bytes + CRC)
@@ -281,7 +283,7 @@ def read_measurement():
         humidity = 100 * hum_raw / 65535
         # Verify CRC for humidity
         if calculate_crc(data[6:8]) != data[8]:
-            # Instead of printing error, we'll just continue
+            # Just continue without printing error
             pass
         
         return co2, temperature, humidity
@@ -293,21 +295,18 @@ def force_calibration(target_co2=400):
     """Force calibration with known CO2 value (typically 400ppm for fresh air)"""
     # Convert target CO2 value to bytes (MSB first)
     target_bytes = bytearray([(target_co2 >> 8) & 0xFF, target_co2 & 0xFF])
-    send_command_with_args(CMD_FORCE_CALIBRATION, target_bytes)
-    time.sleep(1)
+    return send_command_with_args_retry(CMD_FORCE_CALIBRATION, target_bytes)
 
 def enable_automatic_calibration(enable=True):
     """Enable or disable automatic self-calibration"""
     value = 1 if enable else 0
-    send_command_with_args(CMD_SET_AUTOMATIC_CALIBRATION, bytearray([0, value]))
-    time.sleep(0.5)
+    return send_command_with_args_retry(CMD_SET_AUTOMATIC_CALIBRATION, bytearray([0, value]))
 
 def set_altitude_compensation(altitude_meters=0):
     """Set altitude compensation in meters above sea level"""
     # Convert altitude to bytes (MSB first)
     altitude_bytes = bytearray([(altitude_meters >> 8) & 0xFF, altitude_meters & 0xFF])
-    send_command_with_args(CMD_ALTITUDE_COMPENSATION, altitude_bytes)
-    time.sleep(0.5)
+    return send_command_with_args_retry(CMD_ALTITUDE_COMPENSATION, altitude_bytes)
     
 # ----------------------------- #
 # End of SCD41 sensor functions #
@@ -353,6 +352,18 @@ def generate_real_sensor_data():
             "value": "{:.2f}".format(velocity),
             "unit": "m/s"
         },
+        "CO2": {
+            "value": last_co2,
+            "unit": "ppm"
+        },
+        "Temperature": {
+            "value": "{:.2f}".format(last_temp),
+            "unit": "C"  # Changed from °C to just C to avoid encoding issues
+        },
+        "Humidity": {
+            "value": "{:.2f}".format(last_humidity),
+            "unit": "%"
+        }
     }
 
 # Main loop
@@ -389,18 +400,29 @@ def main():
     else:
         print(f"SCD41 found at address 0x{SCD41_ADDRESS:02X}")
         print("Performing initial setup...")
-        send_command(CMD_FACTORY_RESET) # Factory reset
-        time.sleep(1)
-        send_command(CMD_REINIT) # Reinitialize sensor
-        time.sleep(0.5)
-        enable_automatic_calibration(True) # Enable automatic calibration
-        set_altitude_compensation(0) # Set altitude compensation to 0 meters
-        print("Performing forced calibration (assuming clean air ~400ppm)...")
+        
+        # Skip factory reset (which was causing timeout) and use gentler initialization
+        print("Stopping any previous measurements...")
         stop_periodic_measurement()
-        time.sleep(0.5)
+        time.sleep(1)
+        
+        print("Reinitializing sensor...")
+        send_command_with_retry(CMD_REINIT)
+        time.sleep(1)
+        
+        print("Enabling automatic calibration...")
+        enable_automatic_calibration(True)
+        
+        print("Setting altitude compensation...")
+        set_altitude_compensation(0)
+        
+        print("Performing forced calibration (assuming clean air ~400ppm)...")
         force_calibration(400)
         time.sleep(1)
+        
+        print("Starting periodic measurement...")
         start_periodic_measurement()
+        
         print("SCD41 setup complete")
         
     print("\nSetup complete. Starting data transmission loop...")
@@ -408,7 +430,7 @@ def main():
     # Main loop - send data every second
     while True:
         try:
-            # Generate simulated sensor data
+            # Generate sensor data from real sensors
             sensor_data = generate_real_sensor_data()
             
             # Send data to server
@@ -419,7 +441,13 @@ def main():
             
         except Exception as e:
             print(f"Error in main loop: {e}")
-            time.sleep(5)  # Wait before retrying
+            # Blink LED to indicate error
+            led.on()
+            time.sleep(0.5)
+            led.off()
+            time.sleep(0.5)
+            # Wait before retrying
+            time.sleep(5)
 
 if __name__ == "__main__":
     main()

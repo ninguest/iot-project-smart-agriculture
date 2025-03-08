@@ -6,13 +6,14 @@ import json
 from machine import Pin
 
 # Wi-Fi configuration
-SSID = "T"
-PASSWORD = "Teet123time909"
+SSID = "WifiSSID"
+PASSWORD = "WifiPassword"
 
 # Server configuration
-SERVER_IP = "192.168.1.8"  # Change to your server's IP address
-SERVER_PORT = 3000
-API_URL = f"http://{SERVER_IP}:{SERVER_PORT}/sensors"
+# SERVER_IP = "192.168.1.8"  # Change to your server's IP address
+# SERVER_PORT = 3000
+# API_URL = f"http://{SERVER_IP}:{SERVER_PORT}/sensors"
+API_URL = "https://iot.ycstation.work/sensors"
 DEVICE_ID = "test_pico_simulator"
 
 # Status LED
