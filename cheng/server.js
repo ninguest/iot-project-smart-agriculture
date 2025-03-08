@@ -1,355 +1,167 @@
+// server.js
 const express = require('express');
-const bodyParser = require('body-parser');
-const fs = require('fs');
+const http = require('http');
+const socketIo = require('socket.io');
 const path = require('path');
+const bodyParser = require('body-parser');
 
-// Initialize express app
+// Create Express app
 const app = express();
-const PORT = process.env.PORT || 3000;
+const server = http.createServer(app);
+const io = socketIo(server);
 
-// Middleware
+// Set up middleware
 app.use(bodyParser.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Data storage
-const dataFile = path.join(__dirname, 'sensor_data.json');
+// Store most recent data from each device
+const deviceData = {};
+// Store historical data (limited to last 100 readings for each device)
+const historicalData = {};
+// Store device connection status
+const connectedDevices = {};
 
-// Initialize data file if it doesn't exist
-if (!fs.existsSync(dataFile)) {
-  fs.writeFileSync(dataFile, JSON.stringify({ 
-    readings: [],
-    air_velocity: [],
-    co2: [],
-    temperature: [],
-    humidity: []
-  }));
-}
-
-// Helper function to read data
-function readData() {
-  const rawData = fs.readFileSync(dataFile);
-  return JSON.parse(rawData);
-}
-
-// Helper function to write data
-function writeData(data) {
-  fs.writeFileSync(dataFile, JSON.stringify(data, null, 2));
-}
-
-// Helper function to validate and format timestamp
-function validateTimestamp(timestamp) {
-    if (!timestamp) return Date.now();
-    
-    // Check if timestamp is in seconds (MicroPython's time.time() returns seconds)
-    // A typical millisecond timestamp would be > 1000000000000 (year 2001)
-    if (timestamp < 20000000000) {
-        // Convert from seconds to milliseconds
-        timestamp = timestamp * 1000;
-    }
-    
-    const parsed = new Date(timestamp).getTime();
-    return !isNaN(parsed) ? parsed : Date.now();
-}
-
-// API Endpoint to receive all sensor data
-app.post('/sensors', (req, res) => {
-  try {
-    const { device_id, sensors } = req.body;
-    
-    // Validate required fields
-    if (!sensors || typeof sensors !== 'object') {
-      return res.status(400).json({ error: 'Missing or invalid sensors data' });
-    }
-    
-    // Create reading object with server timestamp
-    const serverTimestamp = Date.now();
-    const reading = {
-      device_id: device_id || 'unknown',
-      timestamp: serverTimestamp,
-      received_at: serverTimestamp,
-      sensors: {} // Will store all sensor data
-    };
-    
-    // Process each sensor type
-    const data = readData();
-    
-    // Add each sensor's data to the combined reading and to individual sensor arrays
-    if (sensors.air_velocity) {
-      reading.sensors.air_velocity = {
-        value: sensors.air_velocity.value,
-        unit: sensors.air_velocity.unit || 'm/s'
-      };
-      
-      // Also store in dedicated air_velocity array
-      data.air_velocity.push({
-        value: sensors.air_velocity.value,
-        unit: sensors.air_velocity.unit || 'm/s',
-        device_id: device_id || 'unknown',
-        timestamp: serverTimestamp
-      });
-    }
-    
-    if (sensors.co2) {
-      console.log("Received CO2 data:", JSON.stringify(sensors.co2));
-      
-      // Validate CO2 value - must be a number and not undefined
-      const co2Value = sensors.co2.value;
-      console.log("CO2 raw value:", co2Value, "Type:", typeof co2Value);
-      
-      // If the value is zero or falsy but a valid number, still process it
-      // This ensures we don't skip legitimate zero readings
-      if (co2Value !== undefined && (!isNaN(parseFloat(co2Value)) || co2Value === 0)) {
-        // Make sure we store as a number
-        const parsedValue = parseFloat(co2Value);
-        console.log("Storing CO2 value:", parsedValue);
-        
-        reading.sensors.co2 = {
-          value: parsedValue,
-          unit: sensors.co2.unit || 'ppm'
-        };
-        
-        // Store in dedicated co2 array
-        data.co2.push({
-          value: parsedValue,
-          unit: sensors.co2.unit || 'ppm',
-          device_id: device_id || 'unknown',
-          timestamp: serverTimestamp
-        });
-      } else {
-        console.warn("Invalid CO2 value received:", co2Value);
-      }
-    }
-    
-    if (sensors.temperature) {
-      reading.sensors.temperature = {
-        value: sensors.temperature.value,
-        unit: sensors.temperature.unit || 'C'
-      };
-      
-      // Store in dedicated temperature array
-      data.temperature.push({
-        value: sensors.temperature.value,
-        unit: sensors.temperature.unit || 'C',
-        device_id: device_id || 'unknown',
-        timestamp: serverTimestamp
-      });
-    }
-    
-    if (sensors.humidity) {
-      reading.sensors.humidity = {
-        value: sensors.humidity.value,
-        unit: sensors.humidity.unit || '%'
-      };
-      
-      // Store in dedicated humidity array
-      data.humidity.push({
-        value: sensors.humidity.value,
-        unit: sensors.humidity.unit || '%',
-        device_id: device_id || 'unknown',
-        timestamp: serverTimestamp
-      });
-    }
-    
-    // Save the combined reading to the readings array
-    data.readings.push(reading);
-    
-    // Limit array sizes to prevent file from growing too large
-    const MAX_READINGS = 1000;
-    if (data.readings.length > MAX_READINGS) {
-      data.readings = data.readings.slice(-MAX_READINGS);
-    }
-    if (data.air_velocity.length > MAX_READINGS) {
-      data.air_velocity = data.air_velocity.slice(-MAX_READINGS);
-    }
-    if (data.co2.length > MAX_READINGS) {
-      data.co2 = data.co2.slice(-MAX_READINGS);
-    }
-    if (data.temperature.length > MAX_READINGS) {
-      data.temperature = data.temperature.slice(-MAX_READINGS);
-    }
-    if (data.humidity.length > MAX_READINGS) {
-      data.humidity = data.humidity.slice(-MAX_READINGS);
-    }
-    
-    // Save to data file
-    writeData(data);
-    
-    // Log the received data
-    console.log(`Received data from ${device_id || 'unknown'} at ${new Date(reading.timestamp).toLocaleString()}`);
-    console.log(JSON.stringify(sensors, null, 2));
-    
-    return res.status(200).json({ success: true, message: 'Data received' });
-  } catch (error) {
-    console.error('Error processing request:', error);
-    return res.status(500).json({ error: 'Server error' });
-  }
-});
-
-// Maintaining backward compatibility for air velocity endpoint
-app.post('/airvelocity', (req, res) => {
-  try {
-    const { air_velocity, device_id, unit } = req.body;
-    
-    // Validate required fields
-    if (air_velocity === undefined) {
-      return res.status(400).json({ error: 'Missing air_velocity data' });
-    }
-    
-    // Create sensors object in the format expected by the /sensors endpoint
-    const sensorData = {
-      device_id: device_id || 'unknown',
-      sensors: {
-        air_velocity: {
-          value: air_velocity,
-          unit: unit || 'm/s'
-        }
-      }
-    };
-    
-    // Forward to the main sensors endpoint handler
-    req.body = sensorData;
-    
-    // Call the sensors endpoint
-    app.handle(req, res);
-    
-  } catch (error) {
-    console.error('Error processing request:', error);
-    return res.status(500).json({ error: 'Server error' });
-  }
-});
-
-// API Endpoint to get all readings
-app.get('/readings', (req, res) => {
-  try {
-    const data = readData();
-    res.status(200).json(data.readings);
-  } catch (error) {
-    console.error('Error retrieving data:', error);
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-// API Endpoint to get latest reading with all sensors
-app.get('/readings/latest', (req, res) => {
-  try {
-    const data = readData();
-    const latest = data.readings.length > 0 
-      ? data.readings[data.readings.length - 1] 
-      : null;
-    
-    res.status(200).json({ latest });
-  } catch (error) {
-    console.error('Error retrieving data:', error);
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-// API Endpoint to get air velocity readings (for backward compatibility)
-app.get('/airvelocity', (req, res) => {
-  try {
-    const data = readData();
-    res.status(200).json({ readings: data.air_velocity });
-  } catch (error) {
-    console.error('Error retrieving data:', error);
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-// API Endpoint to get latest air velocity (for backward compatibility)
-app.get('/airvelocity/latest', (req, res) => {
-  try {
-    const data = readData();
-    const latest = data.air_velocity.length > 0 
-      ? data.air_velocity[data.air_velocity.length - 1] 
-      : null;
-    
-    res.status(200).json({ latest });
-  } catch (error) {
-    console.error('Error retrieving data:', error);
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-// New endpoints for specific sensor types
-app.get('/co2', (req, res) => {
-  try {
-    const data = readData();
-    res.status(200).json({ readings: data.co2 });
-  } catch (error) {
-    console.error('Error retrieving data:', error);
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-app.get('/co2/latest', (req, res) => {
-  try {
-    const data = readData();
-    const latest = data.co2.length > 0 
-      ? data.co2[data.co2.length - 1] 
-      : null;
-    
-    res.status(200).json({ latest });
-  } catch (error) {
-    console.error('Error retrieving data:', error);
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-app.get('/temperature', (req, res) => {
-  try {
-    const data = readData();
-    res.status(200).json({ readings: data.temperature });
-  } catch (error) {
-    console.error('Error retrieving data:', error);
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-app.get('/temperature/latest', (req, res) => {
-  try {
-    const data = readData();
-    const latest = data.temperature.length > 0 
-      ? data.temperature[data.temperature.length - 1] 
-      : null;
-    
-    res.status(200).json({ latest });
-  } catch (error) {
-    console.error('Error retrieving data:', error);
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-app.get('/humidity', (req, res) => {
-  try {
-    const data = readData();
-    res.status(200).json({ readings: data.humidity });
-  } catch (error) {
-    console.error('Error retrieving data:', error);
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-app.get('/humidity/latest', (req, res) => {
-  try {
-    const data = readData();
-    const latest = data.humidity.length > 0 
-      ? data.humidity[data.humidity.length - 1] 
-      : null;
-    
-    res.status(200).json({ latest });
-  } catch (error) {
-    console.error('Error retrieving data:', error);
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-// Serve the dashboard HTML file
+// Route to serve the main dashboard page
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`Dashboard available at http://localhost:${PORT}`);
+// API endpoint to receive sensor data from the Pico W
+app.post('/sensors', (req, res) => {
+  try {
+    const data = req.body;
+    
+    if (!data || !data.device_id || !data.sensors) {
+      return res.status(400).json({ error: 'Invalid data format' });
+    }
+    
+    const deviceId = data.device_id;
+    const timestamp = new Date().toISOString();
+    
+    // Add timestamp to the data
+    const dataWithTimestamp = {
+      ...data,
+      timestamp
+    };
+    
+    // Update most recent data for this device
+    deviceData[deviceId] = dataWithTimestamp;
+    
+    // Initialize historical data array for this device if it doesn't exist
+    if (!historicalData[deviceId]) {
+      historicalData[deviceId] = [];
+    }
+    
+    // Add to historical data, limiting to 100 readings
+    historicalData[deviceId].push(dataWithTimestamp);
+    if (historicalData[deviceId].length > 100) {
+      historicalData[deviceId].shift(); // Remove oldest reading
+    }
+    
+    // Update device connection status and timestamp
+    connectedDevices[deviceId] = {
+      lastSeen: timestamp,
+      status: 'online'
+    };
+    
+    // Emit updated data to all connected clients
+    io.emit('sensorUpdate', { 
+      deviceId,
+      data: dataWithTimestamp
+    });
+    
+    // Also emit the complete current state to keep clients in sync
+    io.emit('deviceStatus', connectedDevices);
+    
+    return res.status(200).json({ success: true });
+  } catch (error) {
+    console.error('Error processing sensor data:', error);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// API endpoints to get data
+app.get('/api/devices', (req, res) => {
+  res.json(Object.keys(deviceData));
+});
+
+app.get('/api/current/:deviceId', (req, res) => {
+  const { deviceId } = req.params;
+  if (deviceData[deviceId]) {
+    res.json(deviceData[deviceId]);
+  } else {
+    res.status(404).json({ error: 'Device not found' });
+  }
+});
+
+app.get('/api/history/:deviceId', (req, res) => {
+  const { deviceId } = req.params;
+  if (historicalData[deviceId]) {
+    res.json(historicalData[deviceId]);
+  } else {
+    res.status(404).json({ error: 'Device history not found' });
+  }
+});
+
+app.post('/updateMe', (req, res) => {
+  exec("/home/nin/server/iot-project-smart-agriculture/update.sh", (error, stdout, stderr) => {
+    if (error) {
+      console.error(`exec error: ${error}`);
+      return;
+    }
+    console.log(`stdout: ${stdout}`);
+    console.error(`stderr: ${stderr}`);
+  });
+  res.status(200).json({ success: true, message: 'Updating...' });
+})
+
+// WebSocket connection handling
+io.on('connection', (socket) => {
+  console.log('Client connected');
+  
+  // Send the current state to the newly connected client
+  socket.emit('initialData', deviceData);
+  socket.emit('deviceStatus', connectedDevices);
+  
+  socket.on('disconnect', () => {
+    console.log('Client disconnected');
+  });
+  
+  // Handle client requesting historical data
+  socket.on('getHistoricalData', (deviceId) => {
+    if (historicalData[deviceId]) {
+      socket.emit('historicalData', {
+        deviceId,
+        data: historicalData[deviceId]
+      });
+    }
+  });
+});
+
+// Check for inactive devices every minute
+setInterval(() => {
+  const now = new Date();
+  
+  Object.keys(connectedDevices).forEach(deviceId => {
+    const device = connectedDevices[deviceId];
+    const lastSeen = new Date(device.lastSeen);
+    const diffMinutes = (now - lastSeen) / (1000 * 60);
+    
+    // If not seen in the last 2 minutes, mark as offline
+    if (diffMinutes > 2 && device.status !== 'offline') {
+      connectedDevices[deviceId] = {
+        ...device,
+        status: 'offline'
+      };
+      
+      // Emit status update
+      io.emit('deviceStatus', connectedDevices);
+    }
+  });
+}, 60000);
+
+// Start the server
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}: http://localhost:${PORT}`);
 });
