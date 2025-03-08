@@ -1,6 +1,8 @@
 cd /home/nin/server/iot-project-smart-agriculture
-s
+
 git pull origin production 
+
+cd /home/nin/server/iot-project-smart-agriculture/cheng
 
 npm install
 
