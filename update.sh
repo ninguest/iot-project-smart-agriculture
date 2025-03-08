@@ -1,6 +1,6 @@
 cd /home/nin/server/iot-project-smart-agriculture
 
-git pull origin production 
+git pull origin main 
 
 cd /home/nin/server/iot-project-smart-agriculture/cheng
 
