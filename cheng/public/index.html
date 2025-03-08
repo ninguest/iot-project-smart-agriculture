@@ -1,444 +1,80 @@
+<!-- public/index.html -->
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>Multi-Sensor Dashboard</title>
+  <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <style>
-    body { font-family: Arial, sans-serif; margin: 0; padding: 20px; line-height: 1.6; background-color: #f5f5f5; }
-    .container { max-width: 1200px; margin: 0 auto; }
-    h1 { color: #333; text-align: center; margin-bottom: 30px; }
-    .dashboard { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; }
-    .card { border: 1px solid #ddd; border-radius: 8px; padding: 20px; margin-bottom: 20px; background-color: white; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-    .reading { font-size: 2em; font-weight: bold; color: #2c3e50; margin: 10px 0; }
-    .reading-label { font-size: 0.9em; color: #7f8c8d; }
-    button { background: #4CAF50; color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer; transition: background 0.3s; }
-    button:hover { background: #45a049; }
-    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-    table, th, td { border: 1px solid #ddd; }
-    th, td { padding: 12px; text-align: left; }
-    th { background-color: #f2f2f2; }
-    .chart-container { height: 300px; width: 100%; }
-    .footer { text-align: center; margin-top: 30px; font-size: 0.9em; color: #7f8c8d; }
-    .no-data { color: #95a5a6; font-style: italic; text-align: center; padding: 20px; }
-    .sensor-icon { font-size: 1.5em; margin-right: 10px; vertical-align: middle; }
-    .chart-toggle { display: flex; justify-content: space-between; margin-bottom: 15px; }
-    .toggle-btn { background: #ecf0f1; color: #34495e; padding: 5px 10px; border-radius: 4px; cursor: pointer; }
-    .toggle-btn.active { background: #3498db; color: white; }
-  </style>
+  <title>Sensor Dashboard</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.6.1/socket.io.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
 </head>
 <body>
-  <div class="container">
-    <h1>Multi-Sensor Dashboard</h1>
-    
-    <div class="dashboard">
-      <!-- Air Velocity Card -->
-      <div class="card">
-        <h2><span class="sensor-icon">💨</span>Air Velocity</h2>
-        <div id="velocity-reading"></div>
-        <div class="chart-container">
-          <canvas id="velocityChart"></canvas>
-        </div>
-      </div>
-      
-      <!-- CO2 Card -->
-      <div class="card">
-        <h2><span class="sensor-icon">🌬️</span>CO2 Level</h2>
-        <div id="co2-reading"></div>
-        <div class="chart-container">
-          <canvas id="co2Chart"></canvas>
-        </div>
-      </div>
-      
-      <!-- Temperature Card -->
-      <div class="card">
-        <h2><span class="sensor-icon">🌡️</span>Temperature</h2>
-        <div id="temperature-reading"></div>
-        <div class="chart-container">
-          <canvas id="tempChart"></canvas>
-        </div>
-      </div>
-      
-      <!-- Humidity Card -->
-      <div class="card">
-        <h2><span class="sensor-icon">💧</span>Humidity</h2>
-        <div id="humidity-reading"></div>
-        <div class="chart-container">
-          <canvas id="humidityChart"></canvas>
-        </div>
-      </div>
+  <header>
+    <h1>Sensor Dashboard</h1>
+    <div class="time-container">
+      <div id="currentTime"></div>
+      <div id="currentDate"></div>
     </div>
-    
-    <div class="card">
-      <h2>Recent Readings</h2>
-      <div class="chart-toggle">
-        <button onclick="fetchLatestData()" class="refresh-btn">Refresh Data</button>
-        <div>
-          <span class="toggle-btn active" id="table-btn" onclick="toggleView('table')">Table</span>
-          <span class="toggle-btn" id="json-btn" onclick="toggleView('json')">JSON</span>
+  </header>
+
+  <main>
+    <section class="device-list">
+      <h2>Connected Devices</h2>
+      <div id="deviceList" class="devices">
+        <!-- Devices will be added here dynamically -->
+        <div class="no-devices">No devices connected</div>
+      </div>
+    </section>
+
+    <section class="sensor-data">
+      <div class="sensor-header">
+        <h2 id="selectedDeviceTitle">Sensor Data</h2>
+        <div class="connection-status">
+          <span id="connectionDot"></span>
+          <span id="connectionStatus">No device selected</span>
         </div>
       </div>
-      <div id="table-view">
-        <table>
-          <thead>
-            <tr>
-              <th>Time</th>
-              <th>Device</th>
-              <th>Air Velocity</th>
-              <th>CO2</th>
-              <th>Temperature</th>
-              <th>Humidity</th>
-            </tr>
-          </thead>
-          <tbody id="readings-body"></tbody>
-        </table>
+
+      <div id="noDeviceSelected" class="message-container">
+        <p>Select a device to view sensor data</p>
       </div>
-      <div id="json-view" style="display:none">
-        <pre id="json-content" style="background:#f8f8f8; padding:10px; overflow:auto; max-height:400px;"></pre>
+
+      <div id="deviceData" class="device-data" style="display: none;">
+        <div class="current-readings">
+          <h3>Current Readings</h3>
+          <div id="sensorTiles" class="sensor-tiles">
+            <!-- Sensor tiles will be added here dynamically -->
+          </div>
+        </div>
+
+        <div class="charts-container">
+          <h3>Historical Data</h3>
+          <div class="chart-controls">
+            <div class="sensor-selector">
+              <label for="sensorSelect">Sensor:</label>
+              <select id="sensorSelect">
+                <!-- Options will be populated based on available sensors -->
+              </select>
+            </div>
+            <div class="time-range">
+              <label for="timeRange">Time Range:</label>
+              <select id="timeRange">
+                <option value="all">All Data</option>
+                <option value="hour" selected>Last Hour</option>
+                <option value="day">Last Day</option>
+              </select>
+            </div>
+          </div>
+          <div class="chart-wrapper">
+            <canvas id="sensorChart"></canvas>
+          </div>
+        </div>
       </div>
-    </div>
-    
-    <div class="footer">
-      <p>Multi-Sensor Dashboard | Last updated: <span id="last-update"></span></p>
-    </div>
-  </div>
-  
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
-  <script>
-    // Chart objects
-    let velocityChart, co2Chart, tempChart, humidityChart;
-    let currentView = 'table';
-    
-    // Initialize all charts
-    function initCharts() {
-      const commonOptions = {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: {
-            display: false
-          }
-        },
-        scales: {
-          x: {
-            grid: {
-              display: false
-            }
-          }
-        },
-        animation: {
-          duration: 500
-        }
-      };
-      
-      // Air Velocity Chart
-      const velocityCtx = document.getElementById('velocityChart').getContext('2d');
-      velocityChart = new Chart(velocityCtx, {
-        type: 'line',
-        data: {
-          labels: [],
-          datasets: [{
-            label: 'Air Velocity (m/s)',
-            data: [],
-            borderColor: 'rgb(75, 192, 192)',
-            backgroundColor: 'rgba(75, 192, 192, 0.1)',
-            borderWidth: 2,
-            tension: 0.3,
-            fill: true
-          }]
-        },
-        options: {
-          ...commonOptions,
-          scales: {
-            y: {
-              beginAtZero: true,
-              title: {
-                display: true,
-                text: 'm/s'
-              }
-            }
-          }
-        }
-      });
-      
-      // CO2 Chart
-      const co2Ctx = document.getElementById('co2Chart').getContext('2d');
-      co2Chart = new Chart(co2Ctx, {
-        type: 'line',
-        data: {
-          labels: [],
-          datasets: [{
-            label: 'CO2 (ppm)',
-            data: [],
-            borderColor: 'rgb(255, 99, 132)',
-            backgroundColor: 'rgba(255, 99, 132, 0.1)',
-            borderWidth: 2,
-            tension: 0.3,
-            fill: true
-          }]
-        },
-        options: {
-          ...commonOptions,
-          scales: {
-            y: {
-              beginAtZero: false,
-              title: {
-                display: true,
-                text: 'ppm'
-              }
-            }
-          }
-        }
-      });
-      
-      // Temperature Chart
-      const tempCtx = document.getElementById('tempChart').getContext('2d');
-      tempChart = new Chart(tempCtx, {
-        type: 'line',
-        data: {
-          labels: [],
-          datasets: [{
-            label: 'Temperature (°C)',
-            data: [],
-            borderColor: 'rgb(255, 159, 64)',
-            backgroundColor: 'rgba(255, 159, 64, 0.1)',
-            borderWidth: 2,
-            tension: 0.3,
-            fill: true
-          }]
-        },
-        options: {
-          ...commonOptions,
-          scales: {
-            y: {
-              title: {
-                display: true,
-                text: '°C'
-              }
-            }
-          }
-        }
-      });
-      
-      // Humidity Chart
-      const humidityCtx = document.getElementById('humidityChart').getContext('2d');
-      humidityChart = new Chart(humidityCtx, {
-        type: 'line',
-        data: {
-          labels: [],
-          datasets: [{
-            label: 'Humidity (%)',
-            data: [],
-            borderColor: 'rgb(54, 162, 235)',
-            backgroundColor: 'rgba(54, 162, 235, 0.1)',
-            borderWidth: 2,
-            tension: 0.3,
-            fill: true
-          }]
-        },
-        options: {
-          ...commonOptions,
-          scales: {
-            y: {
-              beginAtZero: true,
-              max: 100,
-              title: {
-                display: true,
-                text: '%'
-              }
-            }
-          }
-        }
-      });
-    }
-    
-    // Toggle between table and JSON view
-    function toggleView(view) {
-      currentView = view;
-      document.getElementById('table-view').style.display = view === 'table' ? 'block' : 'none';
-      document.getElementById('json-view').style.display = view === 'json' ? 'block' : 'none';
-      
-      document.getElementById('table-btn').classList.toggle('active', view === 'table');
-      document.getElementById('json-btn').classList.toggle('active', view === 'json');
-    }
-    
-    // Fetch all sensor data
-    function fetchLatestData() {
-      Promise.all([
-        fetch('/airvelocity').then(res => res.json()),
-        fetch('/co2').then(res => res.json()),
-        fetch('/temperature').then(res => res.json()),
-        fetch('/humidity').then(res => res.json()),
-        fetch('/readings').then(res => res.json())
-      ])
-      .then(([velocityData, co2Data, tempData, humidityData, allReadings]) => {
-        updateVelocityDisplay(velocityData);
-        updateCO2Display(co2Data);
-        updateTemperatureDisplay(tempData);
-        updateHumidityDisplay(humidityData);
-        updateReadingsTable(allReadings);
-        
-        document.getElementById('last-update').textContent = new Date().toLocaleString();
-      })
-      .catch(error => {
-        console.error('Error fetching data:', error);
-      });
-    }
-    
-    // Update Velocity display
-    function updateVelocityDisplay(data) {
-      const readings = data.readings || [];
-      const latest = readings.length > 0 ? readings[readings.length - 1] : null;
-      
-      const readingDiv = document.getElementById('velocity-reading');
-      if (latest) {
-        readingDiv.innerHTML = 
-          '<div class="reading">' + latest.value.toFixed(2) + ' ' + latest.unit + '</div>' +
-          '<div class="reading-label">Last updated: ' + new Date(latest.timestamp).toLocaleString() + '</div>';
-      } else {
-        readingDiv.innerHTML = '<div class="no-data">No data available</div>';
-      }
-      
-      // Update chart (last 20 readings)
-      const chartData = readings.slice(-20);
-      
-      if (velocityChart && chartData.length > 0) {
-        velocityChart.data.labels = chartData.map(r => new Date(r.timestamp).toLocaleTimeString());
-        velocityChart.data.datasets[0].data = chartData.map(r => r.value);
-        velocityChart.update();
-      }
-    }
-    
-    // Update CO2 display
-    function updateCO2Display(data) {
-      const readings = data.readings || [];
-      const latest = readings.length > 0 ? readings[readings.length - 1] : null;
-      
-      const readingDiv = document.getElementById('co2-reading');
-      if (latest) {
-        readingDiv.innerHTML = 
-          '<div class="reading">' + latest.value + ' ' + latest.unit + '</div>' +
-          '<div class="reading-label">Last updated: ' + new Date(latest.timestamp).toLocaleString() + '</div>';
-      } else {
-        readingDiv.innerHTML = '<div class="no-data">No data available</div>';
-      }
-      
-      // Update chart (last 20 readings)
-      const chartData = readings.slice(-20);
-      
-      if (co2Chart && chartData.length > 0) {
-        co2Chart.data.labels = chartData.map(r => new Date(r.timestamp).toLocaleTimeString());
-        co2Chart.data.datasets[0].data = chartData.map(r => r.value);
-        co2Chart.update();
-      }
-    }
-    
-    // Update Temperature display
-    function updateTemperatureDisplay(data) {
-      const readings = data.readings || [];
-      const latest = readings.length > 0 ? readings[readings.length - 1] : null;
-      
-      const readingDiv = document.getElementById('temperature-reading');
-      if (latest) {
-        readingDiv.innerHTML = 
-          '<div class="reading">' + latest.value.toFixed(1) + ' ' + (latest.unit === 'C' ? '°C' : latest.unit) + '</div>' +
-          '<div class="reading-label">Last updated: ' + new Date(latest.timestamp).toLocaleString() + '</div>';
-      } else {
-        readingDiv.innerHTML = '<div class="no-data">No data available</div>';
-      }
-      
-      // Update chart (last 20 readings)
-      const chartData = readings.slice(-20);
-      
-      if (tempChart && chartData.length > 0) {
-        tempChart.data.labels = chartData.map(r => new Date(r.timestamp).toLocaleTimeString());
-        tempChart.data.datasets[0].data = chartData.map(r => r.value);
-        tempChart.update();
-      }
-    }
-    
-    // Update Humidity display
-    function updateHumidityDisplay(data) {
-      const readings = data.readings || [];
-      const latest = readings.length > 0 ? readings[readings.length - 1] : null;
-      
-      const readingDiv = document.getElementById('humidity-reading');
-      if (latest) {
-        readingDiv.innerHTML = 
-          '<div class="reading">' + latest.value.toFixed(1) + latest.unit + '</div>' +
-          '<div class="reading-label">Last updated: ' + new Date(latest.timestamp).toLocaleString() + '</div>';
-      } else {
-        readingDiv.innerHTML = '<div class="no-data">No data available</div>';
-      }
-      
-      // Update chart (last 20 readings)
-      const chartData = readings.slice(-20);
-      
-      if (humidityChart && chartData.length > 0) {
-        humidityChart.data.labels = chartData.map(r => new Date(r.timestamp).toLocaleTimeString());
-        humidityChart.data.datasets[0].data = chartData.map(r => r.value);
-        humidityChart.update();
-      }
-    }
-    
-    // Update Readings Table
-    function updateReadingsTable(readings) {
-      // Display the latest 10 readings
-      const recentReadings = readings.slice(-10).reverse();
-      
-      // Update JSON view
-      document.getElementById('json-content').textContent = JSON.stringify(recentReadings, null, 2);
-      
-      // Update table view
-      const tbody = document.getElementById('readings-body');
-      tbody.innerHTML = '';
-      
-      if (recentReadings.length === 0) {
-        const row = document.createElement('tr');
-        row.innerHTML = '<td colspan="6" class="no-data">No readings available</td>';
-        tbody.appendChild(row);
-        return;
-      }
-      
-      recentReadings.forEach(reading => {
-        const row = document.createElement('tr');
-        
-        // Extract sensor values
-        const airVelocity = reading.sensors.air_velocity 
-          ? reading.sensors.air_velocity.value.toFixed(2) + ' ' + reading.sensors.air_velocity.unit
-          : '-';
-          
-        const co2 = reading.sensors.co2
-          ? reading.sensors.co2.value + ' ' + reading.sensors.co2.unit
-          : '-';
-          
-        const temp = reading.sensors.temperature
-          ? reading.sensors.temperature.value.toFixed(1) + ' ' + (reading.sensors.temperature.unit === 'C' ? '°C' : reading.sensors.temperature.unit)
-          : '-';
-          
-        const humidity = reading.sensors.humidity
-          ? reading.sensors.humidity.value.toFixed(1) + reading.sensors.humidity.unit
-          : '-';
-        
-        row.innerHTML = 
-          '<td>' + new Date(reading.timestamp).toLocaleString() + '</td>' +
-          '<td>' + reading.device_id + '</td>' +
-          '<td>' + airVelocity + '</td>' +
-          '<td>' + co2 + '</td>' +
-          '<td>' + temp + '</td>' +
-          '<td>' + humidity + '</td>';
-        
-        tbody.appendChild(row);
-      });
-    }
-    
-    // Initialize on page load
-    document.addEventListener('DOMContentLoaded', function() {
-      initCharts();
-      fetchLatestData();
-      
-      // Refresh data every 5 seconds
-      setInterval(fetchLatestData, 5000);
-    });
-  </script>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
 </body>
 </html>

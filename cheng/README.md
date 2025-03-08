@@ -1,147 +1,120 @@
-# Pico W Multi-Sensor Monitoring System
+# Sensor Dashboard
 
-A complete system for monitoring and visualizing environmental data using a Raspberry Pi Pico W with FS3000 air velocity sensor and SCD41 temperature/humidity sensor.
+A real-time dashboard for monitoring sensor data from Raspberry Pi Pico W devices.
 
-## Overview
+## Features
 
-This project consists of two main components:
+- Real-time sensor data visualization via Socket.IO
+- Responsive UI design that works on desktop and mobile devices
+- Historical data display with customizable time ranges
+- Automatic detection of different sensor types
+- Status tracking of connected devices
+- Expandable to handle any number and type of sensors
 
-1. **Pico W Firmware**: MicroPython code running on a Raspberry Pi Pico W that reads data from connected sensors and sends it to a server.
-2. **Web Server**: Node.js Express server that receives, stores, and visualizes the sensor data.
+## Project Structure
 
-The system provides real-time monitoring of:
-- Air velocity (m/s) from the FS3000 sensor
-- Temperature (°C) and humidity (%) from the SCD41 sensor
-
-## Hardware Requirements
-
-- Raspberry Pi Pico W
-- FS3000 Air Velocity Sensor
-- SCD41 Environmental Sensor (Temperature/Humidity/CO2)
-- Breadboard and jumper wires
-- USB power supply or battery pack for Pico W
-
-## Hardware Setup
-
-### Connection Diagram
-
-Connect the sensors to the Pico W using I2C:
-
-**I2C Pins:**
-- SDA: GP4 (Pin 6)
-- SCL: GP5 (Pin 7)
-
-**FS3000 Connections:**
-- VCC → 3.3V
-- GND → GND
-- SDA → GP4
-- SCL → GP5
-
-**SCD41 Connections:**
-- VCC → 3.3V
-- GND → GND
-- SDA → GP4
-- SCL → GP5
-
-## Pico W Firmware
-
-### Features
-- Reads from FS3000 air velocity sensor
-- Reads temperature and humidity from SCD41 sensor
-- Sends data to a web server via HTTP POST requests
-- Automatic error recovery and reconnection
-- Diagnostic tools for sensor troubleshooting
-
-### Setup
-
-1. Install Thonny IDE and MicroPython on your Pico W
-2. Copy the `main.py` file to your Pico W
-3. Update the Wi-Fi credentials and server address in the code:
-
-```python
-# Wi-Fi configuration
-SSID = "YourWiFiName"
-PASSWORD = "YourWiFiPassword"
-API_URL = "http://your-server-ip:3000/sensors"
+```
+sensor-dashboard/
+├── server.js                # Express server and API endpoints
+├── package.json             # Project dependencies
+├── public/                  # Client-side files
+│   ├── index.html           # Main dashboard HTML
+│   ├── styles.css           # Dashboard styling
+│   └── app.js               # Client-side JavaScript
+└── README.md                # This file
 ```
 
-### Automatic Startup
+## Setup Instructions
 
-The Pico W will automatically run the code when powered on since it's saved as `main.py`.
+### Prerequisites
 
-## Server Setup
-
-### Requirements
-- Node.js (v12 or higher)
-- npm (Node Package Manager)
+- Node.js (v14 or later)
+- npm (v6 or later)
 
 ### Installation
 
-1. Create a project directory and navigate to it:
+1. Clone this repository or download the files
+   ```
+   git clone <repository-url>
+   ```
+
+2. Navigate to the project directory
+   ```
+   cd sensor-dashboard
+   ```
+
+3. Install dependencies
+   ```
+   npm install
+   ```
+
+4. Start the server
+   ```
+   npm start
+   ```
+
+5. Access the dashboard
+   ```
+   http://localhost:3000
+   ```
+
+## Configuration
+
+The server listens on port 3000 by default. You can change this by setting the `PORT` environment variable:
+
 ```
-mkdir sensor-server
-cd sensor-server
+PORT=8080 npm start
 ```
 
-2. Initialize the Node.js project:
-```
-npm init -y
-npm install express body-parser
+## API Endpoints
+
+### POST /sensors
+Endpoint for devices to send sensor data.
+
+**Request Body Example:**
+```json
+{
+  "device_id": "pico_with_naughty_sensor",
+  "sensors": {
+    "air_velocity": {
+      "value": 2.45,
+      "unit": "m/s"
+    },
+    "temperature": {
+      "value": 22.5,
+      "unit": "C"
+    },
+    "humidity": {
+      "value": 45.2,
+      "unit": "%"
+    }
+  }
+}
 ```
 
-3. Create the directory structure:
-```
-mkdir public
-```
+### GET /api/devices
+Returns a list of all device IDs that have sent data.
 
-4. Create the server file (`server.js`) with the provided server code
-5. Create the dashboard file (`public/index.html`) with the provided HTML code
+### GET /api/current/:deviceId
+Returns the most recent data for a specific device.
 
-### Running the Server
+### GET /api/history/:deviceId
+Returns historical data for a specific device (limited to 100 most recent readings).
 
-```
-node server.js
-```
+## Raspberry Pi Pico W Setup
 
-The server will start on port 3000. Access the dashboard by navigating to:
-```
-http://your-server-ip:3000
-```
+The Raspberry Pi Pico W should POST sensor data to the `/sensors` endpoint in the format shown above. The server is designed to accept any sensor types, not just those shown in the example.
 
-### Data Storage
+## Adding New Sensor Types
 
-Sensor data is stored in memory and periodically saved to a file (`sensor_data.json`).
+The dashboard is designed to automatically detect and display new sensor types without any code changes. When a device sends data with new sensor types, the dashboard will create new tiles and chart options for them.
 
 ## Troubleshooting
 
-### Sensor Issues
-
-If the SCD41 sensor shows problematic readings:
-
-1. Check physical connections
-2. Use the diagnostic functions provided in the code
-3. Try resetting the sensor using the factory reset function
-4. If CO2 readings are consistently 0, the CO2 sensing element may be defective, but temperature and humidity can still be used
-
-### Server Issues
-
-If you encounter the error `sensorData.push is not a function`:
-
-1. Delete the existing `sensor_data.json` file
-2. Restart the server
-
-## Known Limitations
-
-- The SCD41 CO2 sensor might report 0 ppm if the CO2 sensing element is defective
-- Web dashboard requires manual page refresh in some browsers if left open for extended periods
-
-## Future Improvements
-
-- Add alert notifications for extreme values
-- Implement user authentication for the dashboard
-- Add support for more sensor types
-- Create mobile app for monitoring
+- **No devices showing up?** Make sure your Raspberry Pi Pico W is correctly posting data to the `/sensors` endpoint.
+- **Chart not updating?** Check your browser console for any errors.
+- **Server won't start?** Make sure port 3000 (or your custom port) is not in use by another application.
 
 ## License
 
-This project is open source and available under the MIT License.
+This project is licensed under the MIT License.
