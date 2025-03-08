@@ -1,0 +1,80 @@
+<!-- public/index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sensor Dashboard</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.6.1/socket.io.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+</head>
+<body>
+  <header>
+    <h1>Sensor Dashboard</h1>
+    <div class="time-container">
+      <div id="currentTime"></div>
+      <div id="currentDate"></div>
+    </div>
+  </header>
+
+  <main>
+    <section class="device-list">
+      <h2>Connected Devices</h2>
+      <div id="deviceList" class="devices">
+        <!-- Devices will be added here dynamically -->
+        <div class="no-devices">No devices connected</div>
+      </div>
+    </section>
+
+    <section class="sensor-data">
+      <div class="sensor-header">
+        <h2 id="selectedDeviceTitle">Sensor Data</h2>
+        <div class="connection-status">
+          <span id="connectionDot"></span>
+          <span id="connectionStatus">No device selected</span>
+        </div>
+      </div>
+
+      <div id="noDeviceSelected" class="message-container">
+        <p>Select a device to view sensor data</p>
+      </div>
+
+      <div id="deviceData" class="device-data" style="display: none;">
+        <div class="current-readings">
+          <h3>Current Readings</h3>
+          <div id="sensorTiles" class="sensor-tiles">
+            <!-- Sensor tiles will be added here dynamically -->
+          </div>
+        </div>
+
+        <div class="charts-container">
+          <h3>Historical Data</h3>
+          <div class="chart-controls">
+            <div class="sensor-selector">
+              <label for="sensorSelect">Sensor:</label>
+              <select id="sensorSelect">
+                <!-- Options will be populated based on available sensors -->
+              </select>
+            </div>
+            <div class="time-range">
+              <label for="timeRange">Time Range:</label>
+              <select id="timeRange">
+                <option value="all">All Data</option>
+                <option value="hour" selected>Last Hour</option>
+                <option value="day">Last Day</option>
+              </select>
+            </div>
+          </div>
+          <div class="chart-wrapper">
+            <canvas id="sensorChart"></canvas>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

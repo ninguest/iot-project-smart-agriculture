@@ -1,0 +1,264 @@
+/* public/styles.css */
+:root {
+  --primary-color: #2c3e50;
+  --secondary-color: #3498db;
+  --accent-color: #27ae60;
+  --warning-color: #e67e22;
+  --danger-color: #e74c3c;
+  --light-color: #ecf0f1;
+  --dark-color: #34495e;
+  --background-color: #f5f7fa;
+  --card-color: #ffffff;
+  --text-color: #2c3e50;
+  --border-color: #dce0e6;
+  --hover-color: #f0f4f8;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+body {
+  background-color: var(--background-color);
+  color: var(--text-color);
+  line-height: 1.6;
+}
+
+header {
+  background-color: var(--primary-color);
+  color: white;
+  padding: 1rem 2rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.time-container {
+  text-align: right;
+}
+
+#currentTime {
+  font-size: 1.5rem;
+  font-weight: bold;
+}
+
+#currentDate {
+  font-size: 0.9rem;
+}
+
+main {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 1.5rem;
+  padding: 1.5rem;
+  max-width: 1600px;
+  margin: 0 auto;
+}
+
+@media (max-width: 900px) {
+  main {
+    grid-template-columns: 1fr;
+  }
+}
+
+section {
+  background-color: var(--card-color);
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+  padding: 1.5rem;
+}
+
+h2 {
+  margin-bottom: 1rem;
+  color: var(--primary-color);
+  border-bottom: 2px solid var(--border-color);
+  padding-bottom: 0.5rem;
+}
+
+h3 {
+  margin: 1rem 0;
+  color: var(--dark-color);
+}
+
+.device-list {
+  height: fit-content;
+}
+
+.devices {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.device-item {
+  display: flex;
+  align-items: center;
+  padding: 0.8rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.device-item:hover {
+  background-color: var(--hover-color);
+}
+
+.device-item.selected {
+  border-color: var(--secondary-color);
+  background-color: rgba(52, 152, 219, 0.1);
+}
+
+.device-status {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 10px;
+}
+
+.status-online {
+  background-color: var(--accent-color);
+}
+
+.status-offline {
+  background-color: var(--danger-color);
+}
+
+.device-info {
+  flex-grow: 1;
+}
+
+.device-name {
+  font-weight: 600;
+}
+
+.device-last-seen {
+  font-size: 0.8rem;
+  color: #7f8c8d;
+}
+
+.no-devices {
+  padding: 1rem;
+  text-align: center;
+  color: #95a5a6;
+  font-style: italic;
+}
+
+.sensor-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.connection-status {
+  display: flex;
+  align-items: center;
+  font-size: 0.9rem;
+}
+
+#connectionDot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 6px;
+  background-color: #95a5a6;
+}
+
+.online-dot {
+  background-color: var(--accent-color);
+}
+
+.offline-dot {
+  background-color: var(--danger-color);
+}
+
+.message-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 200px;
+  color: #95a5a6;
+  font-style: italic;
+}
+
+.current-readings {
+  margin-bottom: 2rem;
+}
+
+.sensor-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+.sensor-tile {
+  background-color: var(--light-color);
+  border-radius: 8px;
+  padding: 1rem;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+  transition: transform 0.2s;
+}
+
+.sensor-tile:hover {
+  transform: translateY(-3px);
+}
+
+.sensor-name {
+  font-size: 0.9rem;
+  color: #7f8c8d;
+  margin-bottom: 0.4rem;
+  display: flex;
+  align-items: center;
+}
+
+.sensor-name i {
+  margin-right: 6px;
+}
+
+.sensor-value {
+  font-size: 1.8rem;
+  font-weight: bold;
+  color: var(--dark-color);
+}
+
+.sensor-unit {
+  font-size: 0.9rem;
+  color: #7f8c8d;
+  margin-left: 3px;
+}
+
+.chart-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.sensor-selector, .time-range {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+select {
+  padding: 0.4rem 0.6rem;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  outline: none;
+}
+
+select:focus {
+  border-color: var(--secondary-color);
+}
+
+.chart-wrapper {
+  background-color: white;
+  border-radius: 8px;
+  padding: 1rem;
+  height: 300px;
+  position: relative;
+}
