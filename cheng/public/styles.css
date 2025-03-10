@@ -231,11 +231,21 @@ h3 {
   margin-left: 3px;
 }
 
+.charts-container {
+  margin-top: 2rem;
+  background-color: var(--card-color);
+  border-radius: 8px;
+  padding: 1rem;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+}
+
 .chart-controls {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 1rem;
+  flex-wrap: wrap;
+  gap: 1rem;
 }
 
 .sensor-selector, .time-range {
@@ -259,6 +269,63 @@ select:focus {
   background-color: white;
   border-radius: 8px;
   padding: 1rem;
-  height: 300px;
+  height: 300px !important; /* Ensure explicit height */
+  width: 100%;
   position: relative;
+  border: 1px solid var(--border-color);
+}
+
+/* Add a fallback message for when chart isn't loading */
+.chart-wrapper::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: transparent;
+  z-index: -1;
+}
+
+.loading-indicator {
+  text-align: center;
+  padding: 20px;
+  color: #95a5a6;
+  font-style: italic;
+}
+
+.error-message {
+  text-align: center;
+  padding: 20px;
+  color: var(--danger-color);
+  font-style: italic;
+}
+
+.server-offline-dot {
+  background-color: #9b59b6; /* Purple indicator for server connection issues */
+}
+
+#sensorChart {
+  width: 100% !important;
+  height: 100% !important;
+  max-height: 100% !important;
+}
+
+/* Optional loading state for the chart */
+.chart-loading {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(255, 255, 255, 0.8);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 10;
+}
+
+.chart-loading-text {
+  color: var(--primary-color);
+  font-style: italic;
 }

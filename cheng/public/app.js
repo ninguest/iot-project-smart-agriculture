@@ -8,6 +8,10 @@ document.addEventListener('DOMContentLoaded', () => {
   let availableSensors = [];
   let currentChartSensor = null;
   let sensorChart = null;
+  let historicalData = [];
+  let reconnectAttempts = 0;
+  const maxReconnectAttempts = 5;
+  let chartInitialized = false;
   
   // DOM elements
   const deviceList = document.getElementById('deviceList');
@@ -21,6 +25,26 @@ document.addEventListener('DOMContentLoaded', () => {
   const timeRange = document.getElementById('timeRange');
   const currentTime = document.getElementById('currentTime');
   const currentDate = document.getElementById('currentDate');
+  const chartWrapper = document.getElementById('chartWrapper');
+
+  // Debug function to log element status
+  function logElementStatus(id) {
+    const el = document.getElementById(id);
+    console.log(`Element '${id}': ${el ? 'found' : 'not found'}`);
+    if (el) {
+      console.log(`- Display: ${window.getComputedStyle(el).display}`);
+      console.log(`- Visibility: ${window.getComputedStyle(el).visibility}`);
+      console.log(`- Height: ${window.getComputedStyle(el).height}`);
+    }
+  }
+
+  // Debug chart elements on load
+  function debugChartElements() {
+    console.log("Debugging chart elements:");
+    logElementStatus('sensorChart');
+    logElementStatus('chartWrapper');
+    logElementStatus('deviceData');
+  }
   
   // Update the clock
   function updateClock() {
@@ -41,10 +65,31 @@ document.addEventListener('DOMContentLoaded', () => {
   // Socket events
   socket.on('connect', () => {
     console.log('Connected to server');
+    reconnectAttempts = 0;
+  
+    // Refresh data after reconnection
+    if (selectedDeviceId) {
+      socket.emit('getHistoricalData', selectedDeviceId);
+    }
   });
   
   socket.on('disconnect', () => {
     console.log('Disconnected from server');
+    updateConnectionStatus({ status: 'server-disconnected' });
+  });
+
+  socket.on('connect_error', () => {
+    reconnectAttempts++;
+    console.log(`Connection error (Attempt ${reconnectAttempts}/${maxReconnectAttempts})`);
+    
+    if (reconnectAttempts <= maxReconnectAttempts) {
+      setTimeout(() => {
+        console.log('Attempting to reconnect...');
+        socket.connect();
+      }, 5000 * reconnectAttempts); // Progressively longer delays
+    } else {
+      updateConnectionStatus({ status: 'server-disconnected' });
+    }
   });
   
   // Handle initial data when connecting
@@ -55,6 +100,14 @@ document.addEventListener('DOMContentLoaded', () => {
     // If we have a previously selected device, update its data
     if (selectedDeviceId && data[selectedDeviceId]) {
       updateSensorData(data[selectedDeviceId]);
+    }
+  });
+
+  // Add socket handler for extended data
+  socket.on('dateRangeData', (response) => {
+    console.log('Received date range data:', response);
+    if (response.deviceId === selectedDeviceId) {
+      updateChartWithHistoricalData(response.data);
     }
   });
   
@@ -84,8 +137,21 @@ document.addEventListener('DOMContentLoaded', () => {
   socket.on('historicalData', (history) => {
     console.log('Received historical data:', history);
     if (history.deviceId === selectedDeviceId) {
-      updateChartWithHistoricalData(history.data);
+      historicalData = history.data; // Store the data
+      
+      // Make sure the chart is initialized before updating it
+      if (!chartInitialized && historicalData.length > 0) {
+        initializeChart();
+      } else {
+        updateChartWithHistoricalData(historicalData);
+      }
     }
+  });
+
+  // Add error handler
+  socket.on('error', (error) => {
+    console.error('Server error:', error);
+    // Could add UI notification here
   });
   
   // Update the device list in the sidebar
@@ -156,7 +222,17 @@ document.addEventListener('DOMContentLoaded', () => {
   // Format timestamp for display
   function formatTimestamp(timestamp) {
     const date = new Date(timestamp);
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    // Include date if not today
+    const today = new Date();
+    
+    if (date.toDateString() === today.toDateString()) {
+      // Same day, just show time
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } else {
+      // Different day, show date and time
+      return date.toLocaleDateString() + ' ' + 
+             date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
   }
   
   // Select a device and show its data
@@ -179,11 +255,24 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Reset sensors for this device
     availableSensors = [];
-    sensorTiles.innerHTML = '';
+    showLoadingState(); // Show loading indicator
+
+    // Reset chart data
+    historicalData = [];
+    chartInitialized = false;
+    if (sensorChart) {
+      sensorChart.destroy();
+      sensorChart = null;
+    }
     
     // Fetch latest data for this device
     fetch(`/api/current/${deviceId}`)
-      .then(response => response.json())
+      .then(response => {
+        if (!response.ok) {
+          throw new Error('Device data not available');
+        }
+        return response.json();
+      })
       .then(data => {
         updateSensorData(data);
         // Request historical data for this device
@@ -191,6 +280,7 @@ document.addEventListener('DOMContentLoaded', () => {
       })
       .catch(error => {
         console.error('Error fetching device data:', error);
+        sensorTiles.innerHTML = '<div class="error-message">Error loading sensor data. Please try again.</div>';
       });
   }
   
@@ -199,6 +289,12 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!statusData) {
       connectionDot.className = '';
       connectionStatus.textContent = 'Unknown';
+      return;
+    }
+
+    if (statusData.status === 'server-disconnected') {
+      connectionDot.className = 'server-offline-dot';
+      connectionStatus.textContent = 'Server connection lost. Attempting to reconnect...';
       return;
     }
     
@@ -278,12 +374,6 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Update sensor dropdown for chart
     updateSensorDropdown();
-    
-    // Initialize chart if we have sensors and no chart yet
-    if (availableSensors.length > 0 && !currentChartSensor) {
-      currentChartSensor = availableSensors[0];
-      initializeChart();
-    }
   }
   
   // Format sensor name for display
@@ -307,104 +397,185 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     
     // Set current selection if it exists
-    if (currentChartSensor) {
+    if (currentChartSensor && availableSensors.includes(currentChartSensor)) {
       sensorSelect.value = currentChartSensor;
     } else if (availableSensors.length > 0) {
       currentChartSensor = availableSensors[0];
       sensorSelect.value = currentChartSensor;
     }
     
-    // Add change event listener
-    sensorSelect.addEventListener('change', () => {
-      currentChartSensor = sensorSelect.value;
+    // Add change event listener (remove existing first to avoid duplicates)
+    sensorSelect.removeEventListener('change', handleSensorChange);
+    sensorSelect.addEventListener('change', handleSensorChange);
+  }
+  
+  // Handle sensor change
+  function handleSensorChange() {
+    currentChartSensor = sensorSelect.value;
+    console.log(`Selected sensor changed to: ${currentChartSensor}`);
+  
+    // If we already have historical data, just update the chart with existing data
+    if (historicalData && historicalData.length > 0) {
+      updateChartWithHistoricalData(historicalData); 
+    } else {
+      // Only request data from server if we don't have it
       updateChart();
-    });
+    }
   }
   
   // Initialize the chart
   function initializeChart() {
-    const ctx = document.getElementById('sensorChart').getContext('2d');
+    console.log('Initializing chart...');
     
-    sensorChart = new Chart(ctx, {
-      type: 'line',
-      data: {
-        labels: [],
-        datasets: [{
-          label: formatSensorName(currentChartSensor),
-          data: [],
-          borderColor: '#3498db',
-          backgroundColor: 'rgba(52, 152, 219, 0.1)',
-          borderWidth: 2,
-          tension: 0.4,
-          fill: true
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        scales: {
-          x: {
-            display: true,
-            title: {
+    // First, ensure the chart canvas is available
+    const canvas = document.getElementById('sensorChart');
+    if (!canvas) {
+      console.error('Chart canvas element not found');
+      return;
+    }
+    
+    // Ensure deviceData is visible
+    deviceData.style.display = 'block';
+    
+    // Make sure the canvas is visible and has dimensions
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      console.error('Could not get canvas context');
+      return;
+    }
+    
+    // If there's an existing chart, destroy it
+    if (sensorChart) {
+      console.log('Destroying existing chart instance');
+      sensorChart.destroy();
+    }
+    
+    try {
+      // Create new chart
+      sensorChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: [],
+          datasets: [{
+            label: currentChartSensor ? formatSensorName(currentChartSensor) : 'Sensor Data',
+            data: [],
+            borderColor: '#3498db',
+            backgroundColor: 'rgba(52, 152, 219, 0.1)',
+            borderWidth: 2,
+            tension: 0.4,
+            fill: true
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            x: {
               display: true,
-              text: 'Time'
+              title: {
+                display: true,
+                text: 'Time'
+              }
+            },
+            y: {
+              display: true,
+              title: {
+                display: true,
+                text: 'Value'
+              },
+              beginAtZero: false
             }
           },
-          y: {
-            display: true,
-            title: {
+          plugins: {
+            legend: {
               display: true,
-              text: 'Value'
+              position: 'top'
             },
-            beginAtZero: false
-          }
-        },
-        plugins: {
-          legend: {
-            display: true,
-            position: 'top'
+            tooltip: {
+              enabled: true
+            }
           }
         }
+      });
+      
+      console.log('Chart initialized successfully');
+      chartInitialized = true;
+      
+      // Add event listener for time range changes
+      timeRange.removeEventListener('change', handleTimeRangeChange);
+      timeRange.addEventListener('change', handleTimeRangeChange);
+      
+      // Update chart with historical data if available
+      if (historicalData && historicalData.length > 0) {
+        updateChartWithHistoricalData(historicalData);
       }
-    });
-    
-    // Add event listener for time range changes
-    timeRange.addEventListener('change', updateChart);
-    
-    // Request historical data
-    socket.emit('getHistoricalData', selectedDeviceId);
+    } catch (error) {
+      console.error('Error initializing chart:', error);
+    }
+  }
+  
+  // Handle time range change
+  function handleTimeRangeChange() {
+    console.log(`Time range changed to: ${timeRange.value}`);
+    if (historicalData && historicalData.length > 0) {
+      updateChartWithHistoricalData(historicalData);
+    } else {
+      updateChart();
+    }
   }
   
   // Update chart with historical data
   function updateChartWithHistoricalData(historyData) {
-    if (!sensorChart || !currentChartSensor) return;
+    if (!sensorChart || !currentChartSensor) {
+      console.log('Chart or sensor not initialized, initializing now...');
+      if (!chartInitialized) {
+        initializeChart();
+      }
+      return;
+    }
+    
+    // Check if we have valid data
+    if (!historyData || historyData.length === 0) {
+      console.log('No historical data available');
+      return;
+    }
     
     // Filter data based on the selected time range
     const filteredData = filterDataByTimeRange(historyData);
     
+    console.log(`Filtered data for chart: ${filteredData.length} points`);
+    
     // Extract time labels and values for the selected sensor
     const labels = [];
     const values = [];
-    const units = [];
+    let unit = '';
     
     filteredData.forEach(item => {
       if (item.sensors && item.sensors[currentChartSensor]) {
         const date = new Date(item.timestamp);
         labels.push(date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-        values.push(item.sensors[currentChartSensor].value);
-        units.push(item.sensors[currentChartSensor].unit);
+        values.push(parseFloat(item.sensors[currentChartSensor].value));
+        unit = item.sensors[currentChartSensor].unit;
       }
     });
     
-    // Update chart
-    sensorChart.data.labels = labels;
-    sensorChart.data.datasets[0].data = values;
-    sensorChart.data.datasets[0].label = `${formatSensorName(currentChartSensor)} (${units[0] || ''})`;
+    console.log(`Chart data points: ${values.length}`);
     
-    // Update y-axis title
-    sensorChart.options.scales.y.title.text = units[0] || 'Value';
-    
-    sensorChart.update();
+    try {
+      // Update chart data
+      sensorChart.data.labels = labels;
+      sensorChart.data.datasets[0].data = values;
+      
+      // Update titles and unit
+      sensorChart.data.datasets[0].label = `${formatSensorName(currentChartSensor)} (${unit || ''})`;
+      sensorChart.options.scales.y.title.text = unit || 'Value';
+      
+      // Update the chart
+      sensorChart.update();
+      console.log('Chart updated successfully');
+    } catch (error) {
+      console.error('Error updating chart:', error);
+    }
   }
   
   // Filter data by selected time range
@@ -417,6 +588,17 @@ document.addEventListener('DOMContentLoaded', () => {
       return data;
     }
     
+    // For newest 20 points, sort by timestamp and take the last 20
+    if (selectedRange === 'newest20') {
+      // Sort data by timestamp (oldest to newest)
+      const sortedData = [...data].sort((a, b) => {
+        return new Date(a.timestamp) - new Date(b.timestamp);
+      });
+      
+      // Return the newest 20 points or all if less than 20
+      return sortedData.slice(-20);
+    }
+    
     // Filter based on selected time range
     return data.filter(item => {
       const itemDate = new Date(item.timestamp);
@@ -427,6 +609,10 @@ document.addEventListener('DOMContentLoaded', () => {
         return diffHours <= 1;
       } else if (selectedRange === 'day') {
         return diffHours <= 24;
+      } else if (selectedRange === 'week') {
+        return diffHours <= 168; // 24 * 7 = 168 hours in a week
+      } else if (selectedRange === 'month') {
+        return diffHours <= 720; // Approximately 30 days
       }
       
       // Default case, return all data
@@ -436,9 +622,29 @@ document.addEventListener('DOMContentLoaded', () => {
   
   // Update chart based on selected sensor and time range
   function updateChart() {
+    console.log(`Requesting historical data for device: ${selectedDeviceId}`);
     if (selectedDeviceId) {
       socket.emit('getHistoricalData', selectedDeviceId);
+    } else {
+      console.error('No device selected');
     }
+  }
+
+  // Load extended date range data (for advanced charting)
+  function loadExtendedData(startDate, endDate) {
+    if (!selectedDeviceId) return;
+    
+    // Format dates as YYYY-MM-DD
+    const formatDateParam = (date) => {
+      return date.toISOString().split('T')[0];
+    };
+    
+    // Either use socket or fetch API
+    socket.emit('getDateRangeData', {
+      deviceId: selectedDeviceId,
+      startDate: formatDateParam(startDate),
+      endDate: formatDateParam(endDate)
+    });
   }
   
   // Format date for relative time display
@@ -461,4 +667,11 @@ document.addEventListener('DOMContentLoaded', () => {
       return `${days} day${days > 1 ? 's' : ''} ago`;
     }
   }
+
+  function showLoadingState() {
+    sensorTiles.innerHTML = '<div class="loading-indicator">Loading sensor data...</div>';
+  }
+  
+  // Run debug checks
+  setTimeout(debugChartElements, 2000);
 });
