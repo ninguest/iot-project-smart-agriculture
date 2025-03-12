@@ -16,9 +16,18 @@ function initPicoWebSocketServer(server) {
     path: '/pico'
   });
   
-  wss.on('connection', handlePicoConnection);
+  // Add more detailed logging
+  wss.on('headers', (headers, req) => {
+    console.log('WebSocket headers:', headers);
+    console.log('WebSocket request URL:', req.url);
+  });
+
+  wss.on('connection', (ws, req)=>{
+    console.log('Pico W device connected from:', req.socket.remoteAddress);
+    handlePicoConnection(ws);
+  });
   
-  console.log('Pico WebSocket server initialized');
+  console.log('Pico WebSocket server initialized on path: /pico');
   return wss;
 }
 
