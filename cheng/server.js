@@ -14,11 +14,20 @@ const {
   getHistoricalDeviceData, 
   getDateRangeData 
 } = require('./redisSensorData');
+const {
+  initPicoWebSocketServer,
+  sendCommand,
+  broadcastCommand,
+  getConnectedPicoDevices
+} = require('./picoWebsocket');
 
 // Create Express app
 const app = express();
 const server = http.createServer(app);
 const io = socketIo(server);
+
+// Initialize WebSocket server for Pico W devices
+const picoWss = initPicoWebSocketServer(server);
 
 // Set up middleware
 app.use(bodyParser.json());
@@ -187,7 +196,6 @@ function cleanupOldLogs() {
   }
 }
 
-
 // API endpoint to receive sensor data from the Pico W
 app.post('/sensors', async (req, res) => {
   try {
@@ -343,6 +351,47 @@ app.post('/updateMe', (req, res) => {
   res.status(200).json({ success: true, message: 'Updating...' });
 })
 
+// Get all Pico W devices with their capabilities
+app.get('/api/pico-devices', (req, res) => {
+  const devices = getConnectedPicoDevices();
+  res.json(devices);
+});
+
+// Send command to a specific device
+app.post('/api/command/:deviceId', (req, res) => {
+  const { deviceId } = req.params;
+  const { component, action, value } = req.body;
+  
+  if (!component || !action) {
+    return res.status(400).json({ error: 'Missing required parameters: component and action' });
+  }
+  
+  const success = sendCommand(deviceId, component, action, value);
+  
+  if (success) {
+    res.json({ success: true, message: `Command sent to device ${deviceId}` });
+  } else {
+    res.status(404).json({ success: false, error: `Failed to send command to device ${deviceId}` });
+  }
+});
+
+// Broadcast command to all devices with a specific capability
+app.post('/api/broadcast', (req, res) => {
+  const { component, action, value } = req.body;
+  
+  if (!component || !action) {
+    return res.status(400).json({ error: 'Missing required parameters: component and action' });
+  }
+  
+  const targetDevices = broadcastCommand(component, action, value);
+  
+  res.json({ 
+    success: true, 
+    message: `Command broadcasted to ${targetDevices.length} devices`,
+    targetDevices
+  });
+});
+
 // WebSocket connection handling
 io.on('connection', (socket) => {
   console.log('Client connected');
@@ -408,6 +457,41 @@ io.on('connection', (socket) => {
       console.error('Error retrieving date range data:', error);
       socket.emit('error', { message: 'Server error' });
     }
+  });
+
+  socket.on('sendCommand', ({ deviceId, component, action, value }) => {
+    console.log(`Client requested command: ${deviceId} ${component} ${action}`);
+    
+    const success = sendCommand(deviceId, component, action, value);
+    
+    // Send result back to the client
+    socket.emit('commandResult', {
+      success,
+      deviceId,
+      component,
+      action,
+      value
+    });
+  });
+  
+  socket.on('broadcastCommand', ({ component, action, value }) => {
+    console.log(`Client requested broadcast: ${component} ${action}`);
+    
+    const targetDevices = broadcastCommand(component, action, value);
+    
+    // Send result back to the client
+    socket.emit('broadcastResult', {
+      success: targetDevices.length > 0,
+      targetDevices,
+      component,
+      action,
+      value
+    });
+  });
+
+  socket.on('getPicoDevices', () => {
+    const devices = getConnectedPicoDevices();
+    socket.emit('picoDevices', devices);
   });
 
 });

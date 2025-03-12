@@ -329,3 +329,347 @@ select:focus {
   color: var(--primary-color);
   font-style: italic;
 }
+
+/* Device Control Section */
+.device-control {
+  background-color: var(--card-color);
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+  padding: 1.5rem;
+  margin-top: 1.5rem;
+}
+
+.control-header {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 1rem;
+}
+
+.refresh-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background-color: var(--secondary-color);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.refresh-button:hover {
+  background-color: #2980b9;
+}
+
+.broadcast-controls {
+  background-color: var(--light-color);
+  border-radius: 6px;
+  padding: 1rem 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.broadcast-controls h3 {
+  margin-top: 0;
+  margin-bottom: 1rem;
+  color: var(--dark-color);
+}
+
+.form-group {
+  margin-bottom: 0.8rem;
+  display: flex;
+  align-items: center;
+}
+
+.form-group label {
+  width: 100px;
+  font-weight: 600;
+}
+
+.form-group select,
+.form-group input {
+  flex: 1;
+  padding: 0.5rem;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+}
+
+.broadcast-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background-color: var(--accent-color);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 0.6rem 1.2rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  float: right;
+  margin-top: 0.5rem;
+}
+
+.broadcast-button:hover {
+  background-color: #219653;
+}
+
+.device-control-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1.2rem;
+}
+
+.device-card {
+  background-color: var(--card-color);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  overflow: hidden;
+  transition: box-shadow 0.3s;
+}
+
+.device-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.device-card.command-sent {
+  box-shadow: 0 0 0 2px var(--accent-color);
+}
+
+.device-card-header {
+  background-color: var(--light-color);
+  padding: 0.8rem 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.device-card-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.device-card-info {
+  padding: 0.8rem 1rem;
+  font-size: 0.9rem;
+  color: #7f8c8d;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.device-capabilities {
+  margin-top: 0.5rem;
+}
+
+.device-card-controls {
+  padding: 1rem;
+}
+
+.capability-control {
+  margin-bottom: 1.2rem;
+}
+
+.capability-control:last-child {
+  margin-bottom: 0;
+}
+
+.capability-control > label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 0.6rem;
+  color: var(--dark-color);
+}
+
+.toggle-container, 
+.slider-container,
+.color-container,
+.duration-container {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.toggle-button {
+  background-color: #f8f9fa;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 0.4rem 0.8rem;
+  min-width: 50px;
+  text-align: center;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.toggle-button.active {
+  background-color: var(--accent-color);
+  color: white;
+  border-color: var(--accent-color);
+}
+
+input[type="range"] {
+  flex-grow: 1;
+}
+
+.slider-value {
+  min-width: 40px;
+  text-align: right;
+}
+
+input[type="color"] {
+  -webkit-appearance: none;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+input[type="color"]::-webkit-color-swatch {
+  border: none;
+  border-radius: 4px;
+}
+
+.duration-container input {
+  width: 80px;
+  padding: 0.4rem;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+}
+
+.duration-container button {
+  background-color: var(--secondary-color);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 0.4rem 0.75rem;
+  cursor: pointer;
+}
+
+/* Notifications */
+.notification {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  padding: 12px 20px;
+  border-radius: 4px;
+  color: white;
+  max-width: 300px;
+  opacity: 0;
+  transform: translateY(20px);
+  transition: opacity 0.3s, transform 0.3s;
+  z-index: 1000;
+}
+
+.notification.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.notification.success {
+  background-color: var(--accent-color);
+}
+
+.notification.error {
+  background-color: var(--danger-color);
+}
+
+.notification.warning {
+  background-color: var(--warning-color);
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .device-control-list {
+    grid-template-columns: 1fr;
+  }
+  
+  .form-group {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  
+  .form-group label {
+    width: 100%;
+    margin-bottom: 0.4rem;
+  }
+  
+  .form-group select,
+  .form-group input {
+    width: 100%;
+  }
+
+  .broadcast-button {
+    width: 100%;
+    margin-top: 1rem;
+  }
+}
+
+/* Device Control Layout */
+.device-control-container {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 1.5rem;
+  margin-top: 1rem;
+}
+
+@media (max-width: 900px) {
+  .device-control-container {
+    grid-template-columns: 1fr;
+  }
+}
+
+.device-control-list-container {
+  background-color: var(--card-color);
+  border-radius: 8px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+  padding: 1rem;
+  height: fit-content;
+}
+
+.device-control-panel {
+  background-color: var(--card-color);
+  border-radius: 8px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+  padding: 1rem;
+}
+
+.control-device-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 0.5rem;
+}
+
+.device-capabilities-container {
+  margin-bottom: 1.5rem;
+}
+
+.control-panel-link {
+  display: flex;
+  align-items: center;
+}
+
+.control-link {
+  color: white;
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background-color: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.control-link:hover {
+  background-color: rgba(255, 255, 255, 0.2);
+}
