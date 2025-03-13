@@ -5,7 +5,7 @@ import urequests
 import utime
 
 SSID = "OPPO A96"
-PASSWORD = "123456789"
+PASSWORD = "12345678"
 
 API_URL = "https://iot.ycstation.work/sensors"
 
@@ -15,6 +15,9 @@ DEVICE_MAC_ADDRESS = "a4c1384d8de3"
 CHARACTERISTIC_HANDLE = 0x0038
 VALUE_TO_WRITE = b'\x01\x00'
 
+WLAN = network.WLAN(network.STA_IF)
+
+
 class XiaoMiTemp:
     def __init__(self, device_id):
         self.DEVICE_ID = device_id
@@ -22,13 +25,12 @@ class XiaoMiTemp:
         self.ble.active(True)
         self.ble.irq(self.ble_irq)
         self.conn_handle = None
+        self.disconnect_flag = False
 
     def ble_irq(self, event, data):
         if event == 5:
-            # Handle scan result
             addr_type, addr, adv_type, rssi, adv_data = data
             addr_str = ubinascii.hexlify(addr).decode('utf-8')
-            # print(addr_str)
             if addr_str == DEVICE_MAC_ADDRESS:
                 print("Device found:", addr_str)
                 self.ble.gap_scan(None)
@@ -38,6 +40,10 @@ class XiaoMiTemp:
             print("Connected to device")
             self.conn_handle = data[0]
             self.ble.gattc_discover_characteristics(self.conn_handle, 0x0001, 0xFFFF)
+            
+        elif event == 8 and not self.disconnect_flag:
+            print("Disconnected from the bluetooth device. Attempting to reconnect...")
+            self.start_scan()
 
         elif event == 12:
             print("Characteristic discovery completed.")
@@ -53,12 +59,9 @@ class XiaoMiTemp:
         temp = int.from_bytes(databytes[0:2], "little") / 100
         humid = int.from_bytes(databytes[2:3], "little")
         battery = int.from_bytes(databytes[3:5], "little") / 1000
-        data1 = "{}, temperature={}".format(self.DEVICE_ID, temp)
-        data2 = "{}, humidity={}".format(self.DEVICE_ID, humid)
-        data3 = "{}, battery={}".format(self.DEVICE_ID, battery)
-        print(data1)
-        print(data2)
-        print(data3)
+        print(f"Temperature: {temp} C")
+        print(f"Humidity: {humid}%")
+        print(f"Battery: {battery} V")
 
         self.send_to_api(temp, humid, battery)
 
@@ -91,42 +94,55 @@ class XiaoMiTemp:
         self.ble.gap_connect(0, addr)
 
     def start_scan(self):
-        self.ble.gap_scan(2000, 30000, 30000)
+        self.ble.gap_scan(0, 30000, 30000)
+
+    def disconnect(self):
+        self.disconnect_flag = True
+        self.ble.gap_disconnect(self.conn_handle)
+        self.ble.active(False)
+        print("Gracefully disconnected from the bluetooth device.")
 
 
-def connect_wifi() -> bool:
-    """Connect to Wi-Fi network"""
+def connect_wifi():
     connection_attempts = 0
-    wlan = network.WLAN(network.STA_IF)
-    wlan.active(True)
+    WLAN.active(True)
     
     print(f"Connecting to {SSID}...")
-    wlan.connect(SSID, PASSWORD)
-    
-    # Wait for connection with timeout
+    WLAN.connect(SSID, PASSWORD)
+
     while True:
-        if wlan.status() == 3:
+        if WLAN.status() == 3:
             break
 
         connection_attempts += 1
         print(f"Connecting... ({connection_attempts} Attempts)")
         utime.sleep(1)
 
-    print(f"Connected with IP address: {wlan.ifconfig()[0]} ({connection_attempts} Attempts)")
+    print(f"Connected with IP address: {WLAN.ifconfig()[0]} ({connection_attempts} Attempts)")
     return True
 
 
+def disconnect_wifi():
+    WLAN.active(False)
+    print("Gracefully disconnected from the Wifi.")
+
+
 def main():
-    if not connect_wifi():
-        return
-
     xiaomi = XiaoMiTemp(DEVICE_ID)
-    xiaomi.start_scan()
 
-    while True:
-        utime.sleep(1)
+    try:
+        connect_wifi()
+        xiaomi.start_scan()
+
+        while True:
+            utime.sleep(1)
+
+    except KeyboardInterrupt:
+        disconnect_wifi()
+        xiaomi.disconnect()
 
 
 if __name__ == "__main__":
     main()
+
 
