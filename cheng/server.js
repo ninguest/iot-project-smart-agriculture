@@ -14,17 +14,28 @@ const {
   getHistoricalDeviceData, 
   getDateRangeData 
 } = require('./redisSensorData');
+
+// Import both WebSocket and MQTT services (renamed to avoid conflicts)
 const {
   initPicoWebSocketServer,
-  sendCommand,
-  broadcastCommand,
+  sendCommand: sendWsCommand,
+  broadcastCommand: broadcastWsCommand,
   getConnectedPicoDevices
 } = require('./picoWebsocket');
+
+const {
+  initMqttClient,
+  sendCommand: sendMqttCommand,
+  broadcastCommand: broadcastMqttCommand
+} = require('./mqttService');
 
 // Create Express app
 const app = express();
 const server = http.createServer(app);
 const io = socketIo(server);
+
+// Set global io for mqttService to use
+global.io = io;
 
 // Initialize WebSocket server for Pico W devices
 const picoWss = initPicoWebSocketServer(server);
@@ -46,9 +57,16 @@ const historicalData = {};
 // Store device connection status
 const connectedDevices = {};
 
+// Communication mode - can be 'websocket' or 'mqtt'
+const COMMUNICATION_MODE = 'mqtt'; // Set to your preferred mode
+
 // Route to serve the main dashboard page
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+app.get('/mqtt', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'mqtt.html'));
 });
 
 // Function to load historical data from log files
@@ -106,7 +124,6 @@ function loadHistoricalData() {
   }
 }
 
-// Function to save data to log file
 // Function to save data to log file
 function saveToLogFile(deviceId, data) {
   try {
@@ -245,6 +262,9 @@ app.post('/sensors', async (req, res) => {
       historicalData[deviceId].shift(); // Remove oldest reading
     }
 
+    // Save to log file
+    saveToLogFile(deviceId, dataWithTimestamp);
+
     // Save to Redis
     await saveToRedis(deviceId, dataWithTimestamp);
     
@@ -349,13 +369,56 @@ app.post('/updateMe', (req, res) => {
     console.error(`stderr: ${stderr}`);
   });
   res.status(200).json({ success: true, message: 'Updating...' });
-})
+});
 
 // Get all Pico W devices with their capabilities
 app.get('/api/pico-devices', (req, res) => {
   const devices = getConnectedPicoDevices();
   res.json(devices);
 });
+
+// Universal send command function that routes to the appropriate implementation
+function sendCommand(deviceId, component, action, value) {
+  console.log(`MQTT sendCommand called: ${deviceId}, ${component}, ${action}, ${value}`);
+  
+  if (!mqttClient || !mqttClient.connected) {
+    console.error('MQTT client not connected');
+    return null;
+  }
+  
+  // Generate command ID
+  const commandId = `cmd_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
+  
+  // Create command object
+  const command = {
+    id: commandId,
+    component,
+    action,
+    value,
+    timestamp: Date.now()
+  };
+  
+  // Publish to device's command topic
+  const topic = `${TOPIC_PREFIX}${deviceId}/commands`;
+  console.log(`Publishing to topic: ${topic}`);
+  console.log(`Command payload: ${JSON.stringify(command)}`);
+  
+  mqttClient.publish(topic, JSON.stringify(command));
+  
+  console.log(`Command sent to device ${deviceId}: ${component}.${action}=${value}`);
+  return commandId;
+}
+
+// Universal broadcast command function that routes to the appropriate implementation
+function broadcastCommand(component, action, value) {
+  if (COMMUNICATION_MODE === 'mqtt') {
+    // Use the new broadcast-to-all method instead of targeting specific devices
+    return require('./mqttService').broadcastCommandToAll(component, action, value);
+  } else {
+    // Default to WebSocket
+    return broadcastWsCommand(component, action, value);
+  }
+}
 
 // Send command to a specific device
 app.post('/api/command/:deviceId', (req, res) => {
@@ -366,12 +429,19 @@ app.post('/api/command/:deviceId', (req, res) => {
     return res.status(400).json({ error: 'Missing required parameters: component and action' });
   }
   
-  const success = sendCommand(deviceId, component, action, value);
+  const commandId = sendCommand(deviceId, component, action, value);
   
-  if (success) {
-    res.json({ success: true, message: `Command sent to device ${deviceId}` });
+  if (commandId) {
+    res.json({ 
+      success: true, 
+      message: `Command sent to device ${deviceId}`,
+      commandId
+    });
   } else {
-    res.status(404).json({ success: false, error: `Failed to send command to device ${deviceId}` });
+    res.status(404).json({ 
+      success: false, 
+      error: `Failed to send command to device ${deviceId}` 
+    });
   }
 });
 
@@ -462,30 +532,43 @@ io.on('connection', (socket) => {
   socket.on('sendCommand', ({ deviceId, component, action, value }) => {
     console.log(`Client requested command: ${deviceId} ${component} ${action}`);
     
-    const success = sendCommand(deviceId, component, action, value);
+    const commandId = sendCommand(deviceId, component, action, value);
     
     // Send result back to the client
     socket.emit('commandResult', {
-      success,
+      success: !!commandId,
       deviceId,
       component,
       action,
-      value
+      value,
+      commandId
     });
   });
   
   socket.on('broadcastCommand', ({ component, action, value }) => {
     console.log(`Client requested broadcast: ${component} ${action}`);
+  
+    // For MQTT mode, use the broadcast-to-all method
+    let success = false;
+    let commandId = null;
     
-    const targetDevices = broadcastCommand(component, action, value);
+    if (COMMUNICATION_MODE === 'mqtt') {
+      commandId = require('./mqttService').broadcastCommandToAll(component, action, value);
+      success = !!commandId;
+    } else {
+      // For WebSocket mode, use the existing method
+      const targetDevices = broadcastWsCommand(component, action, value);
+      success = targetDevices.length > 0;
+    }
     
     // Send result back to the client
     socket.emit('broadcastResult', {
-      success: targetDevices.length > 0,
-      targetDevices,
+      success: success,
+      targetDevices: ['all'], // Indicate broadcast to all devices
       component,
       action,
-      value
+      value,
+      commandId
     });
   });
 
@@ -494,6 +577,13 @@ io.on('connection', (socket) => {
     socket.emit('picoDevices', devices);
   });
 
+  // MQTT Status request
+  socket.on('getMqttStatus', () => {
+    // Get MQTT info from the mqttService module
+    const mqttInfo = require('./mqttService').getMqttInfo();
+    
+    socket.emit('mqttStatus', mqttInfo);
+  });
 });
 
 // Check for inactive devices every minute
@@ -524,6 +614,10 @@ server.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}: http://localhost:${PORT}`);
   
   try {
+    // Initialize MQTT client
+    await initMqttClient();
+    console.log('MQTT service initialized');
+    
     const client = await getRedisClient();
     
     // Get all device IDs
@@ -562,6 +656,6 @@ server.listen(PORT, async () => {
     
     console.log(`Loaded data for ${Object.keys(deviceData).length} devices`);
   } catch (error) {
-    console.error('Error connecting to Redis:', error);
+    console.error('Error during server initialization:', error);
   }
 });

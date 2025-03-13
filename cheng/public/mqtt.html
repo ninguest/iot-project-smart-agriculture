@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MQTT Monitor</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="mqtt-monitor.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.6.1/socket.io.min.js"></script>
+</head>
+<body>
+    <header>
+        <h1><i class="fas fa-exchange-alt"></i> MQTT Monitor</h1>
+        <div class="header-actions">
+            <a href="index.html" class="dashboard-link"><i class="fas fa-chart-line"></i> Back to Dashboard</a>
+            <div class="time-container">
+                <div id="currentTime"></div>
+                <div id="currentDate"></div>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <div class="container">
+            <div class="panel-group">
+                <section class="panel left-panel">
+                    <div class="panel-header">
+                        <h2><i class="fas fa-satellite-dish"></i> MQTT Status</h2>
+                        <span id="mqtt-status" class="status-badge disconnected">Disconnected</span>
+                    </div>
+                    <div class="panel-content">
+                        <div class="info-item">
+                            <span class="info-label">Broker:</span>
+                            <span class="info-value" id="broker-url">broker.emqx.io:1883</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Topic Prefix:</span>
+                            <span class="info-value" id="topic-prefix">ycstation/devices/</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Connected Devices:</span>
+                            <span class="info-value" id="connected-devices">0</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Messages Received:</span>
+                            <span class="info-value" id="messages-received">0</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Messages Sent:</span>
+                            <span class="info-value" id="messages-sent">0</span>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="panel right-panel">
+                    <div class="panel-header">
+                        <h2><i class="fas fa-paper-plane"></i> Send Message</h2>
+                    </div>
+                    <div class="panel-content">
+                        <form id="mqtt-send-form">
+                            <div class="form-group">
+                                <label for="device-id">Device ID:</label>
+                                <select id="device-id" required>
+                                    <!-- <option value="">Select a device</option> -->
+                                    <option value="broadcast">Broadcast to All</option>
+                                    <!-- Devices will be loaded dynamically -->
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="component">Component:</label>
+                                <select id="component" required>
+                                    <option value="led">LED</option>
+                                    <option value="fan">Fan</option>
+                                    <option value="pump">Pump</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="action">Action:</label>
+                                <select id="action" required>
+                                    <option value="power">Power</option>
+                                    <option value="speed">Speed</option>
+                                    <option value="brightness">Brightness</option>
+                                    <option value="run">Run</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="value">Value:</label>
+                                <input type="text" id="value" placeholder="on, off, 50, etc." required>
+                            </div>
+                            <button type="submit" class="btn-send">
+                                <i class="fas fa-paper-plane"></i> Send Command
+                            </button>
+                        </form>
+                    </div>
+                </section>
+            </div>
+
+            <section class="panel console-panel">
+                <div class="panel-header with-controls">
+                    <h2><i class="fas fa-terminal"></i> MQTT Console</h2>
+                    <div class="console-controls">
+                        <button id="clear-console" class="btn-clear">
+                            <i class="fas fa-trash"></i> Clear
+                        </button>
+                        <div class="filter-container">
+                            <label for="message-filter">Filter:</label>
+                            <select id="message-filter">
+                                <option value="all">All Messages</option>
+                                <option value="command">Commands</option>
+                                <option value="status">Status Updates</option>
+                                <option value="telemetry">Telemetry</option>
+                                <option value="ack">Acknowledgments</option>
+                            </select>
+                        </div>
+                        <div class="autoscroll-container">
+                            <label for="autoscroll">Auto-scroll:</label>
+                            <input type="checkbox" id="autoscroll" checked>
+                        </div>
+                    </div>
+                </div>
+                <div class="console-container">
+                    <div id="mqtt-console" class="console-output"></div>
+                </div>
+            </section>
+
+            <section class="panel raw-mqtt-panel">
+                <div class="panel-header">
+                    <h2><i class="fas fa-code"></i> Raw JSON Command</h2>
+                </div>
+                <div class="panel-content">
+                    <p class="description">Send a raw JSON command as broadcast to all devices</p>
+                    <div class="json-editor-container">
+                        <textarea id="raw-json-editor" class="json-editor" rows="12" spellcheck="false">
+                            {
+                                "id": "custom_cmd_123",
+                                "component": "led",
+                                "action": "power",
+                                "value": "on",
+                                "timestamp": 1678423957123
+                            }
+                        </textarea>
+                    </div>
+                    <div class="json-editor-actions">
+                        <button id="format-json" class="btn-secondary">
+                            <i class="fas fa-indent"></i> Format JSON
+                        </button>
+                        <button id="send-raw-json" class="btn-primary">
+                            <i class="fas fa-paper-plane"></i> Send to All Devices
+                        </button>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>MQTT Monitor for Smart Agriculture IoT System</p>
+        </div>
+    </footer>
+
+    <div id="notification" class="notification">
+        <div class="notification-content">
+            <i class="fas fa-check-circle"></i>
+            <span id="notification-message">Message sent successfully</span>
+        </div>
+    </div>
+
+    <script src="mqtt-monitor.js"></script>
+</body>
+</html>
