@@ -14,6 +14,15 @@ const {
   getHistoricalDeviceData, 
   getDateRangeData 
 } = require('./redisSensorData');
+const {
+  initRuleService,
+  saveRule,
+  loadRules,
+  getRuleById,
+  deleteRule,
+  setRuleEnabled,
+  getRuleHistory
+} = require('./ruleService');
 
 // Import both WebSocket and MQTT services (renamed to avoid conflicts)
 const {
@@ -67,6 +76,10 @@ app.get('/', (req, res) => {
 
 app.get('/mqtt', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'mqtt.html'));
+});
+
+app.get('/rules', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'rules.html'));
 });
 
 // Function to load historical data from log files
@@ -377,6 +390,168 @@ app.get('/api/pico-devices', (req, res) => {
   res.json(devices);
 });
 
+// Get all rules
+app.get('/api/rules', async (req, res) => {
+  try {
+    const rules = await loadRules();
+    res.json(rules);
+  } catch (error) {
+    console.error('Error getting rules:', error);
+    res.status(500).json({ error: 'Error getting rules' });
+  }
+});
+
+// Get a specific rule
+app.get('/api/rules/:ruleId', async (req, res) => {
+  try {
+    const { ruleId } = req.params;
+    const rule = await getRuleById(ruleId);
+    
+    if (!rule) {
+      return res.status(404).json({ error: 'Rule not found' });
+    }
+    
+    res.json(rule);
+  } catch (error) {
+    console.error(`Error getting rule ${req.params.ruleId}:`, error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Create or update a rule
+app.post('/api/rules', async (req, res) => {
+  try {
+    const rule = req.body;
+    
+    // Validate rule
+    if (!rule || !rule.name || !rule.deviceId || !rule.type) {
+      return res.status(400).json({ error: 'Invalid rule data. Required fields: name, deviceId, type' });
+    }
+    
+    // For broadcast mode, only allow schedule rules (not condition rules)
+    if (rule.deviceId === 'broadcast' && rule.type === 'condition') {
+      return res.status(400).json({ 
+        error: 'Broadcast mode only supports schedule-based rules, not condition-based rules' 
+      });
+    }
+    
+    // Validate condition for condition-type rules (for non-broadcast mode)
+    if (rule.type === 'condition' && (!rule.condition || !rule.condition.sensor || !rule.condition.operator || rule.condition.value === undefined)) {
+      return res.status(400).json({ error: 'Invalid condition rule. Required fields: condition.sensor, condition.operator, condition.value' });
+    }
+    
+    // Validate schedule for schedule-type rules
+    if (rule.type === 'schedule' && (!rule.schedule || !rule.schedule.pattern)) {
+      return res.status(400).json({ error: 'Invalid schedule rule. Required field: schedule.pattern' });
+    }
+    
+    // Validate action
+    if (!rule.action) {
+      return res.status(400).json({ error: 'Invalid rule action. Action is required.' });
+    }
+    
+    // Special handling for custom JSON actions
+    if (rule.action.isCustomJson) {
+      // For custom JSON actions, we need either action or command (or both)
+      if ((!rule.action.component) || 
+          (rule.action.action === undefined && rule.action.command === undefined) || 
+          (rule.action.value === undefined)) {
+        return res.status(400).json({ 
+          error: 'Invalid custom JSON action. Required fields: component, action/command, value' 
+        });
+      }
+    } else {
+      // Standard action validation
+      if (!rule.action.component || !rule.action.command || rule.action.value === undefined) {
+        return res.status(400).json({ 
+          error: 'Invalid standard action. Required fields: action.component, action.command, action.value' 
+        });
+      }
+    }
+    
+    // For broadcast mode, set the broadcast flag
+    if (rule.deviceId === 'broadcast') {
+      rule.action.broadcast = true;
+    }
+    
+    const success = await saveRule(rule);
+    
+    if (success) {
+      res.status(rule.id ? 200 : 201).json({ success: true, ruleId: rule.id });
+    } else {
+      res.status(500).json({ error: 'Failed to save rule' });
+    }
+  } catch (error) {
+    console.error('Error saving rule:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Delete a rule
+app.delete('/api/rules/:ruleId', async (req, res) => {
+  try {
+    const { ruleId } = req.params;
+    const rule = await getRuleById(ruleId);
+    
+    if (!rule) {
+      return res.status(404).json({ error: 'Rule not found' });
+    }
+    
+    const success = await deleteRule(ruleId);
+    
+    if (success) {
+      res.json({ success: true });
+    } else {
+      res.status(500).json({ error: 'Failed to delete rule' });
+    }
+  } catch (error) {
+    console.error(`Error deleting rule ${req.params.ruleId}:`, error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Enable or disable a rule
+app.post('/api/rules/:ruleId/toggle', async (req, res) => {
+  try {
+    const { ruleId } = req.params;
+    const { enabled } = req.body;
+    
+    if (enabled === undefined) {
+      return res.status(400).json({ error: 'Missing required field: enabled' });
+    }
+    
+    const rule = await getRuleById(ruleId);
+    
+    if (!rule) {
+      return res.status(404).json({ error: 'Rule not found' });
+    }
+    
+    const success = await setRuleEnabled(ruleId, enabled);
+    
+    if (success) {
+      res.json({ success: true });
+    } else {
+      res.status(500).json({ error: 'Failed to update rule status' });
+    }
+  } catch (error) {
+    console.error(`Error toggling rule ${req.params.ruleId}:`, error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Get rule execution history
+app.get('/api/rules/:ruleId/history', async (req, res) => {
+  try {
+    const { ruleId } = req.params;
+    const history = await getRuleHistory(ruleId);
+    
+    res.json(history);
+  } catch (error) {
+    console.error(`Error getting history for rule ${req.params.ruleId}:`, error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // Universal send command function that routes to the appropriate implementation
 function sendCommand(deviceId, component, action, value) {
   console.log(`MQTT sendCommand called: ${deviceId}, ${component}, ${action}, ${value}`);
@@ -584,6 +759,53 @@ io.on('connection', (socket) => {
     
     socket.emit('mqttStatus', mqttInfo);
   });
+
+  // Add handlers for rules
+  socket.on('getRules', async () => {
+    try {
+      const rules = await loadRules();
+      socket.emit('rules', rules);
+    } catch (error) {
+      console.error('Error fetching rules for socket:', error);
+      socket.emit('error', { message: 'Error retrieving rules' });
+    }
+  });
+  
+  socket.on('getSensorsForDevice', async (deviceId) => {
+    try {
+      const deviceData = await getLatestDeviceData(deviceId);
+      if (deviceData && deviceData.sensors) {
+        const sensors = Object.keys(deviceData.sensors).map(sensorKey => ({
+          id: sensorKey,
+          name: sensorKey.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+          unit: deviceData.sensors[sensorKey].unit
+        }));
+        
+        socket.emit('deviceSensors', { deviceId, sensors });
+      } else {
+        socket.emit('deviceSensors', { deviceId, sensors: [] });
+      }
+    } catch (error) {
+      console.error(`Error fetching sensors for device ${deviceId}:`, error);
+      socket.emit('error', { message: 'Error retrieving sensors' });
+    }
+  });
+  
+  socket.on('getComponentsForDevice', async (deviceId) => {
+    try {
+      // For MQTT devices, we can use standard components
+      const components = [
+        { id: 'fan', name: 'Fan' },
+        { id: 'led', name: 'LED' },
+        { id: 'pump', name: 'Pump' }
+      ];
+      
+      socket.emit('deviceComponents', { deviceId, components });
+    } catch (error) {
+      console.error(`Error fetching components for device ${deviceId}:`, error);
+      socket.emit('error', { message: 'Error retrieving components' });
+    }
+  });
 });
 
 // Check for inactive devices every minute
@@ -618,6 +840,10 @@ server.listen(PORT, async () => {
     await initMqttClient();
     console.log('MQTT service initialized');
     
+    // Initialize the rule service
+    await initRuleService();
+    console.log('Rule service initialized');
+
     const client = await getRedisClient();
     
     // Get all device IDs
