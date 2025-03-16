@@ -1,55 +1,187 @@
-from machine import Pin, I2C
-import time
-import urequests
 import network
+import time
 import json
+import random
+from umqtt.simple import MQTTClient
+import machine
+from machine import Pin, I2C
+import urequests
 
 # Wi-Fi configuration
-SSID = "yo"
-PASSWORD = "pleasestophacking"
+WIFI_SSID = "yo"
+WIFI_PASSWORD = "pleasestophacking"
 
-# Server configuration
+# GPIO Pin for Fan Control
+Fan = Pin(15, Pin.OUT)
+
+# Onboard LED
+led = machine.Pin("LED", machine.Pin.OUT)
+
+#######################################################
+# MQTT Configuration
+#######################################################
+MQTT_BROKER = "broker.emqx.io"
+MQTT_PORT = 1883
+MQTT_CLIENT_ID = f"pico_w_{random.randint(0, 1000000)}"
+DEVICE_ID = "pico_fan_control"  # A unique ID for your device
+MQTT_TOPIC_PREFIX = "ycstation/devices/"  # Same as in your server
+
+# Commands topic (to receive commands)
+COMMANDS_TOPIC = f"{MQTT_TOPIC_PREFIX}{DEVICE_ID}/commands"
+# Broadcast topic (to receive broadcast commands)
+BROADCAST_TOPIC = f"{MQTT_TOPIC_PREFIX}all/commands"
+# Status topic (to publish device status)
+STATUS_TOPIC = f"{MQTT_TOPIC_PREFIX}{DEVICE_ID}/status"
+# Acknowledgment topic (to confirm commands)
+ACK_TOPIC = f"{MQTT_TOPIC_PREFIX}{DEVICE_ID}/ack"
+
+#######################################################
+# Sensor Server Configuration
+#######################################################
 API_URL = "https://iot.ycstation.work/sensors"
 
-# Status LED
-led = Pin("LED", Pin.OUT)
-
-# Device IDs - keep separate to identify data sources
+# Device IDs for sensors
 DEVICE_ID_CO2 = "Sensirion-SCD41(CO2)"
 DEVICE_ID_SPECTROMETER = "spectrometerclick_sensor"
 
-# I2C setup for both sensors
+#######################################################
+# I2C configuration for sensors
+#######################################################
 i2c_co2 = I2C(0, scl=Pin(1), sda=Pin(0), freq=100000)  # Use GPIO 0 and 1 for CO2 sensor
 i2c_spectro = I2C(1, scl=Pin(27), sda=Pin(26), freq=100000)  # Use GPIO 26 and 27 for spectrometer
 
-# Setup wifi connection for restful API
-
+# wifi connection setup
 def connect_wifi():
     """Connect to Wi-Fi network"""
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
     
-    print(f"Connecting to {SSID}...")
-    wlan.connect(SSID, PASSWORD)
+    print(f"Connecting to WiFi: {WIFI_SSID}")
+    if not wlan.isconnected():
+        wlan.connect(WIFI_SSID, WIFI_PASSWORD)
+        # Wait for connection with timeout
+        max_wait = 20
+        while max_wait > 0:
+            if wlan.isconnected():
+                break
+            max_wait -= 1
+            print("Waiting for connection...")
+            time.sleep(1)
     
-    # Wait for connection with timeout
-    max_wait = 10
-    while max_wait > 0:
-        if wlan.status() < 0 or wlan.status() >= 3:
-            break
-        max_wait -= 1
-        print("Waiting for connection...")
-        time.sleep(1)
-    
-    if wlan.status() != 3:
-        print("Network connection failed")
-        return False
-    else:
-        print("Connected")
-        status = wlan.ifconfig()
-        print(f"IP address: {status[0]}")
+    if wlan.isconnected():
+        print("WiFi connected!")
+        print(f"IP address: {wlan.ifconfig()[0]}")
         return True
+    else:
+        print("WiFi connection failed!")
+        return False
 
+#######################################################
+# MQTT Functions
+#######################################################
+
+# MQTT callback function for incoming messages
+def mqtt_callback(topic, msg):
+    print(f"Received message on {topic}: {msg}")
+    
+    try:
+        # Decode topic and message
+        topic_str = topic.decode('utf-8')
+        msg_str = msg.decode('utf-8')
+        
+        # Process commands from either direct or broadcast topics
+        if topic_str == COMMANDS_TOPIC or topic_str == BROADCAST_TOPIC:
+            command = json.loads(msg_str)
+            process_command(command)
+    except Exception as e:
+        print(f"Error processing message: {e}")
+
+# Process command messages
+def process_command(command):
+    command_id = command.get('id', 'unknown')
+    component = command.get('component', '')
+    action = command.get('action', '')
+    value = command.get('value', '')
+    
+    print(f"Processing command: {component}.{action}={value}")
+    success = False
+    message = "Unknown command"
+    
+    # Handle Fan commands (we'll use 'Fan' as the component name)
+    if component == 'fan':
+        if action == 'power':
+            if value == 'on':
+                Fan.value(1)
+                success = True
+                message = "Fan turned on"
+            elif value == 'off':
+                Fan.value(0)
+                success = True
+                message = "Fan turned off"
+    
+    # Send acknowledgment
+    send_ack(command_id, success, message)
+
+# Send command acknowledgment
+def send_ack(command_id, success, message):
+    ack = {
+        'command_id': command_id,
+        'success': success,
+        'message': message,
+        'timestamp': time.time()
+    }
+    try:
+        mqtt_client.publish(ACK_TOPIC, json.dumps(ack))
+        print(f"Acknowledgment sent: {success}, {message}")
+    except Exception as e:
+        print(f"Error sending acknowledgment: {e}")
+
+# Send device status update
+def send_status():
+    status = {
+        'device_id': DEVICE_ID,
+        'status': 'online',
+        'capabilities': ['Fan'],
+        'components': {
+            'Fan': {
+                'power': 'on' if Fan.value() else 'off'
+            }
+        },
+        'timestamp': time.time()
+    }
+    try:
+        mqtt_client.publish(STATUS_TOPIC, json.dumps(status))
+        print("Status update sent")
+    except Exception as e:
+        print(f"Error sending status: {e}")
+
+# Initialize MQTT client
+def init_mqtt():
+    global mqtt_client
+    try:
+        mqtt_client = MQTTClient(MQTT_CLIENT_ID, MQTT_BROKER, MQTT_PORT)
+        mqtt_client.set_callback(mqtt_callback)
+        mqtt_client.connect()
+        print(f"Connected to MQTT broker: {MQTT_BROKER}")
+        
+        # Subscribe to device-specific commands topic
+        mqtt_client.subscribe(COMMANDS_TOPIC)
+        print(f"Subscribed to device commands: {COMMANDS_TOPIC}")
+        
+        # Subscribe to broadcast commands topic
+        mqtt_client.subscribe(BROADCAST_TOPIC)
+        print(f"Subscribed to broadcast commands: {BROADCAST_TOPIC}")
+        
+        # Send initial status
+        send_status()
+        return True
+    except Exception as e:
+        print(f"MQTT initialization error: {e}")
+        return False
+
+#######################################################
+# Sensor Data API Function
+#######################################################
 def send_data_to_server(device_id, sensor_data):
     """Send sensor data to the server"""
     try:
@@ -360,15 +492,19 @@ def format_spectral_data(spectral_data):
     
     return sensors
 
-
+#######################################################
+# Main Program
+#######################################################
 def main():
+    global mqtt_client
+    
     print("\n========================================")
-    print("Combined Sensors Data Collection Program")
-    print("Reading from SCD41 CO2 and AS7341 Spectrometer")
-    print("Sending data to server every 5 seconds")
+    print("Unified IoT Control and Sensing System")
+    print("Fan Control via MQTT + Sensor Data Collection")
     print("========================================\n")
 
-    # Variables to track sensor status
+    # Variables to track component status
+    mqtt_working = False
     co2_sensor_working = False
     spectro_working = False
 
@@ -390,6 +526,14 @@ def main():
             time.sleep(0.5)
         return
     
+    # Initialize MQTT
+    print("\nInitializing MQTT client...")
+    mqtt_working = init_mqtt()
+    if not mqtt_working:
+        print("Warning: MQTT initialization failed. Fan control will not be available.")
+    else:
+        print("MQTT client initialized successfully!")
+        
     # Initialize CO2 sensor
     print("\nInitializing SCD41 CO2 sensor...")
     co2_sensor_working = init_co2_sensor()
@@ -406,9 +550,9 @@ def main():
     else:
         print("Spectrometer initialized successfully!")
     
-    # Check if at least one sensor is working
-    if not co2_sensor_working and not spectro_working:
-        print("ERROR: Both sensors failed to initialize. Exiting program.")
+    # Check if at least one component is working
+    if not mqtt_working and not co2_sensor_working and not spectro_working:
+        print("ERROR: All system components failed to initialize. Exiting program.")
         for _ in range(5):
             led.on()
             time.sleep(0.2)
@@ -416,50 +560,68 @@ def main():
             time.sleep(0.2)
         return
     
-    
     try:
-        print("\nSetup complete. Starting data collection and transmission loop...")
+        print("\nSetup complete. Starting main system loop...")
         
-        # Main loop - read and send data every 5 seconds
+        # Timing variables
+        last_status_time = time.time()
+        last_sensor_time = time.time()
+        
+        # Main loop
         while True:
-            # Handle CO2 sensor if working
-            if co2_sensor_working:
-                try:
-                    # Read CO2 sensor data
-                    co2, temp, humidity = read_measurement_co2()
-                    print(f"\nCO2 Sensor: CO2: {co2} ppm, Temperature: {temp:.2f} °C, Humidity: {humidity:.2f} %")
-                    
-                    # Format and send CO2 data
-                    co2_data = format_co2_data(co2, temp, humidity)
-                    send_data_to_server(DEVICE_ID_CO2, co2_data)
-                except Exception as e:
-                    print(f"Error reading CO2 sensor: {e}")
+            current_time = time.time()
             
-            # Short delay between sensor readings
-            time.sleep(0.5)
+            # Handle MQTT if working
+            if mqtt_working:
+                # Check for new MQTT messages
+                mqtt_client.check_msg()
+                
+                # Send status update every 30 seconds
+                if current_time - last_status_time > 30:
+                    send_status()
+                    last_status_time = current_time
             
-            # Handle Spectrometer if working
-            if spectro_working:
-                try:
-                    # Read spectral data
-                    print("\nReading spectral data...")
-                    spectral_data = read_spectral_data()
-                    
-                    # Print a simple version of the spectral readings
-                    print("Spectral Readings Summary:")
-                    print(f"Violet: {spectral_data['F1 (415nm/Violet)']} | Blue: {spectral_data['F3 (480nm/Blue)']} | Green: {spectral_data['F5 (555nm/Green)']}")
-                    print(f"Yellow: {spectral_data['F6 (590nm/Yellow)']} | Orange: {spectral_data['F7 (630nm/Orange)']} | Red: {spectral_data['F8 (680nm/Red)']}")
-                    print(f"Clear: {spectral_data['Clear']} | NIR: {spectral_data['NIR']}")
-                    
-                    # Format and send spectral data
-                    spectro_data = format_spectral_data(spectral_data)
-                    send_data_to_server(DEVICE_ID_SPECTROMETER, spectro_data)
-                except Exception as e:
-                    print(f"Error reading spectrometer: {e}")
+            # Handle sensors every 5 seconds
+            if current_time - last_sensor_time > 5:
+                last_sensor_time = current_time
+                
+                # Handle CO2 sensor if working
+                if co2_sensor_working:
+                    try:
+                        # Read CO2 sensor data
+                        co2, temp, humidity = read_measurement_co2()
+                        print(f"\nCO2 Sensor: CO2: {co2} ppm, Temperature: {temp:.2f} °C, Humidity: {humidity:.2f} %")
+                        
+                        # Format and send CO2 data
+                        co2_data = format_co2_data(co2, temp, humidity)
+                        send_data_to_server(DEVICE_ID_CO2, co2_data)
+                    except Exception as e:
+                        print(f"Error reading CO2 sensor: {e}")
+                
+                # Short delay between sensor readings
+                time.sleep(0.5)
+                
+                # Handle Spectrometer if working
+                if spectro_working:
+                    try:
+                        # Read spectral data
+                        print("\nReading spectral data...")
+                        spectral_data = read_spectral_data()
+                        
+                        # Print a simple version of the spectral readings
+                        print("Spectral Readings Summary:")
+                        print(f"Violet: {spectral_data['F1 (415nm/Violet)']} | Blue: {spectral_data['F3 (480nm/Blue)']} | Green: {spectral_data['F5 (555nm/Green)']}")
+                        print(f"Yellow: {spectral_data['F6 (590nm/Yellow)']} | Orange: {spectral_data['F7 (630nm/Orange)']} | Red: {spectral_data['F8 (680nm/Red)']}")
+                        print(f"Clear: {spectral_data['Clear']} | NIR: {spectral_data['NIR']}")
+                        
+                        # Format and send spectral data
+                        spectro_data = format_spectral_data(spectral_data)
+                        send_data_to_server(DEVICE_ID_SPECTROMETER, spectro_data)
+                    except Exception as e:
+                        print(f"Error reading spectrometer: {e}")
             
-            # Wait before next cycle
-            print("\nWait 1 seconds before next reading cycle...")
-            time.sleep(1)
+            # Small delay to prevent CPU overload
+            time.sleep(0.1)
                 
     except KeyboardInterrupt:
         print("\nProgram stopped by user.")
@@ -471,6 +633,10 @@ def main():
             # Turn off LED if it was enabled
             enable_led_spectro(False)
             print("Spectrometer shut down.")
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+        machine.reset()  # Reset the Pico W on error
 
+# Run the main function
 if __name__ == "__main__":
     main()

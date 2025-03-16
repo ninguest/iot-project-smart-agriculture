@@ -14,7 +14,7 @@ PASSWORD = "pleasestophacking"
 # SERVER_PORT = 3000
 # API_URL = f"http://{SERVER_IP}:{SERVER_PORT}/sensors"
 API_URL = "https://iot.ycstation.work/sensors"
-DEVICE_ID = "Sensirion-SCD41"
+DEVICE_ID = "Sensirion-SCD41(CO2)"
 
 # Status LED
 led = Pin("LED", Pin.OUT)
