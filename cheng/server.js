@@ -82,6 +82,10 @@ app.get('/rules', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'rules.html'));
 });
 
+app.get('/control', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'better-control.html'));
+});
+
 // Function to load historical data from log files
 function loadHistoricalData() {
   try {
