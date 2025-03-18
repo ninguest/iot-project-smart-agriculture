@@ -300,36 +300,84 @@ app.post('/sensors', async (req, res) => {
       const key = `device:${deviceId}:sensor:${sensorKey}`;
       
       try {
-        // If Redis TimeSeries module is available, use it
-        await client.ts.create(key, {
-          RETENTION: 30 * 24 * 60 * 60 * 1000, // 30 days retention
-          LABELS: {
-            device_id: deviceId,
-            sensor: sensorKey,
-            unit: sensorData.unit
+        // Try to create the time series if it doesn't exist yet
+        try {
+          // If Redis TimeSeries module is available, use it
+          await client.ts.create(key, {
+            RETENTION: 30 * 24 * 60 * 60 * 1000, // 30 days retention
+            LABELS: {
+              device_id: deviceId,
+              sensor: sensorKey,
+              unit: sensorData.unit
+            }
+          });
+        } catch (err) {
+          // Ignore "key already exists" error
+          if (!err.message || !err.message.includes("key already exists")) {
+            console.warn(`Unable to create time series: ${err.message}`);
           }
-        });
-      } catch (err) {
-        // Ignore "key already exists" error
-        if (!err.message || !err.message.includes("key already exists")) {
-          console.warn(`Unable to create time series: ${err.message}`);
         }
-      }
-      
-      try {
-        // Add data point
-        await client.ts.add(key, timestampMs, sensorValue);
+        
+        // Add data point with duplicate policy handling
+        try {
+          // First try with the standard add command
+          await client.ts.add(key, timestampMs, sensorValue);
+        } catch (err) {
+          // If we get a duplicate policy error, try alternatives
+          if (err.message && err.message.includes("DUPLICATE_POLICY")) {
+            console.log(`Handling duplicate policy for ${key}`);
+            
+            // Option 1: Add a tiny offset to the timestamp (1ms)
+            try {
+              await client.ts.add(key, timestampMs + 1, sensorValue);
+              console.log(`Added with timestamp offset: ${timestampMs + 1}`);
+            } catch (offsetErr) {
+              console.warn(`Failed with offset approach: ${offsetErr.message}`);
+              
+              // Option 2: Use fallback to standard Redis 
+              try {
+                // Use a sorted set as fallback
+                const fallbackKey = `fallback:device:${deviceId}:sensor:${sensorKey}`;
+                await client.zAdd(fallbackKey, {
+                  score: timestampMs,
+                  value: `${sensorValue}:${sensorData.unit}`
+                });
+                
+                // Set metadata
+                const metaKey = `meta:${fallbackKey}`;
+                await client.hSet(metaKey, {
+                  device_id: deviceId,
+                  sensor: sensorKey,
+                  unit: sensorData.unit,
+                  last_update: timestampMs
+                });
+                
+                // Set expiration
+                await client.expire(fallbackKey, 30 * 24 * 60 * 60); // 30 days
+                await client.expire(metaKey, 30 * 24 * 60 * 60); // 30 days
+                
+                console.log(`Used fallback storage for ${sensorKey}`);
+              } catch (fallbackErr) {
+                console.error(`All storage methods failed for ${sensorKey}: ${fallbackErr.message}`);
+              }
+            }
+          } else {
+            // Some other error with time series
+            console.warn(`Time series error for ${key}: ${err.message}`);
+            
+            // Try fallback method directly
+            const fallbackKey = `fallback:device:${deviceId}:sensor:${sensorKey}`;
+            await client.zAdd(fallbackKey, {
+              score: timestampMs,
+              value: `${sensorValue}:${sensorData.unit}`
+            });
+            
+            // Set expiration
+            await client.expire(fallbackKey, 30 * 24 * 60 * 60); // 30 days
+          }
+        }
       } catch (err) {
-        console.warn(`Unable to add to time series: ${err.message}`);
-        
-        // Fallback to standard Redis if TimeSeries isn't available
-        await client.zAdd(key, {
-          score: timestampMs,
-          value: `${sensorValue}:${sensorData.unit}`
-        });
-        
-        // Set expiration
-        await client.expire(key, 30 * 24 * 60 * 60); // 30 days
+        console.error(`Complete failure handling sensor ${sensorKey}: ${err.message}`);
       }
     }
 
