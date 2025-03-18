@@ -773,7 +773,9 @@ io.on('connection', (socket) => {
   
   socket.on('getSensorsForDevice', async (deviceId) => {
     try {
+      // Try to get latest data from Redis first
       const deviceData = await getLatestDeviceData(deviceId);
+      
       if (deviceData && deviceData.sensors) {
         const sensors = Object.keys(deviceData.sensors).map(sensorKey => ({
           id: sensorKey,
@@ -783,7 +785,20 @@ io.on('connection', (socket) => {
         
         socket.emit('deviceSensors', { deviceId, sensors });
       } else {
-        socket.emit('deviceSensors', { deviceId, sensors: [] });
+        // Fallback - check if we have it in memory
+        if (deviceData[deviceId] && deviceData[deviceId].sensors) {
+          const sensors = Object.keys(deviceData[deviceId].sensors).map(sensorKey => ({
+            id: sensorKey,
+            name: sensorKey.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+            unit: deviceData[deviceId].sensors[sensorKey].unit
+          }));
+          
+          socket.emit('deviceSensors', { deviceId, sensors });
+        } else {
+          // No data found
+          console.warn(`No sensor data found for device ${deviceId}`);
+          socket.emit('deviceSensors', { deviceId, sensors: [] });
+        }
       }
     } catch (error) {
       console.error(`Error fetching sensors for device ${deviceId}:`, error);

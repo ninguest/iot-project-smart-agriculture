@@ -462,8 +462,39 @@ function loadDeviceSensors() {
     document.querySelector('.rule-type-option[data-type="condition"]').style.opacity = '1';
   }
   
-  // Request sensors from server (original code)
+  // Request sensors from server
   socket.emit('getSensorsForDevice', device);
+  
+  // Add a fallback method in case socket request fails
+  // Fetch latest device data using REST API
+  fetch(`/api/current/${device}`)
+    .then(response => {
+      if (!response.ok) {
+        throw new Error('Failed to fetch device data');
+      }
+      return response.json();
+    })
+    .then(data => {
+      if (data && data.sensors) {
+        // Check if conditionSensor is still empty after 2 seconds (socket request might have failed)
+        setTimeout(() => {
+          if (conditionSensor.options.length <= 1) {
+            console.log('Using fallback method to load sensors');
+            const sensors = Object.keys(data.sensors).map(sensorKey => ({
+              id: sensorKey,
+              name: sensorKey.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+              unit: data.sensors[sensorKey].unit
+            }));
+            
+            handleDeviceSensors({ deviceId: device, sensors });
+          }
+        }, 2000);
+      }
+    })
+    .catch(error => {
+      console.error('Error fetching device data:', error);
+      showNotification('Error loading sensors. Please try again.', true);
+    });
 }
 
 // Handle device sensors from server

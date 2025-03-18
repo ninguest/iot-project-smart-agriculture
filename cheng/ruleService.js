@@ -309,7 +309,11 @@ function scheduleRule(rule) {
     console.log(`Scheduling rule ${rule.id} (${rule.name}) with pattern: ${scheduleConfig.pattern}`);
     
     // Create a scheduled job with node-schedule
-    const job = schedule.scheduleJob(scheduleConfig.pattern, () => {
+    // Note: node-schedule supports the extended cron format with seconds
+    const job = schedule.scheduleJob({
+      rule: scheduleConfig.pattern,
+      tz: 'UTC'  // Set timezone to UTC (can be configured if needed)
+    }, () => {
       console.log(`Executing scheduled rule ${rule.id} (${rule.name})`);
       executeRuleAction(rule);
     });

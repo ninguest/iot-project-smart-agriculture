@@ -153,13 +153,15 @@
                   <input type="text" id="schedulePattern" placeholder="* * * * *">
                   
                   <div class="schedule-pattern-help">
-                    <p>Use cron pattern format: <code>minute hour day-of-month month day-of-week</code></p>
+                    <p>Use extended cron pattern format: <code>second minute hour day-of-month month day-of-week</code></p>
                     
                     <div class="schedule-examples">
-                      <div><code>0 8 * * *</code> - Every day at 8:00 AM</div>
-                      <div><code>*/15 * * * *</code> - Every 15 minutes</div>
-                      <div><code>0 20 * * 1-5</code> - Every weekday at 8:00 PM</div>
-                      <div><code>0 0 1 * *</code> - First day of every month at midnight</div>
+                      <div><code>0 0 8 * * *</code> - Every day at 8:00 AM</div>
+                      <div><code>0 */15 * * * *</code> - Every 15 minutes</div>
+                      <div><code>0 0 20 * * 1-5</code> - Every weekday at 8:00 PM</div>
+                      <div><code>0 0 0 1 * *</code> - First day of every month at midnight</div>
+                      <div><code>*/30 * * * * *</code> - Every 30 seconds</div>
+                      <div><code>0 0 8,12,18 * * *</code> - Every day at 8 AM, 12 PM, and 6 PM</div>
                     </div>
                   </div>
                 </div>
