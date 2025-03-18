@@ -590,7 +590,8 @@ function loadDeviceSensors() {
 // New function to fetch sensors via REST API
 async function fetchSensorsViaAPI(device) {
   try {
-    const response = await fetch(`/api/current/${device}`);
+    // Changed to directly call an endpoint that will query Redis without checking online status
+    const response = await fetch(`/api/devices/${device}/sensors?skipOnlineCheck=true`);
     if (!response.ok) {
       throw new Error(`Failed to fetch device data: ${response.statusText}`);
     }
@@ -603,15 +604,7 @@ async function fetchSensorsViaAPI(device) {
       return [];
     }
     
-    // Convert to the format expected by handleDeviceSensors
-    const sensors = Object.keys(data.sensors).map(sensorKey => ({
-      id: sensorKey,
-      name: sensorKey.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
-      unit: data.sensors[sensorKey].unit
-    }));
-    
-    console.log('Processed sensors:', sensors);
-    return sensors;
+    return data.sensors;
   } catch (error) {
     console.error('Error in fetchSensorsViaAPI:', error);
     return [];
@@ -1096,5 +1089,5 @@ document.addEventListener('DOMContentLoaded', ()=>{
   initPage();
   
   // Add debugging tools if in development
-  // addDebuggingTools();
+  addDebuggingTools();
 });

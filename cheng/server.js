@@ -281,6 +281,58 @@ app.post('/sensors', async (req, res) => {
     // Save to Redis
     await saveToRedis(deviceId, dataWithTimestamp);
     
+    // Also update the device connection status for the rules system
+    const client = await getRedisClient();
+    
+    // 1. Update device connection status in the format expected by rules system
+    await client.hSet(`device:${deviceId}:connection`, {
+      status: 'online',
+      lastSeen: timestamp
+    });
+    
+    // 2. Make sure each sensor has its own time series in Redis
+    // This mimics what mqttService.handleTelemetryData() does
+    for (const [sensorKey, sensorData] of Object.entries(data.sensors)) {
+      const sensorValue = parseFloat(sensorData.value);
+      const timestampMs = new Date(timestamp).getTime();
+      
+      // Create a Redis key like the MQTT service would use
+      const key = `device:${deviceId}:sensor:${sensorKey}`;
+      
+      try {
+        // If Redis TimeSeries module is available, use it
+        await client.ts.create(key, {
+          RETENTION: 30 * 24 * 60 * 60 * 1000, // 30 days retention
+          LABELS: {
+            device_id: deviceId,
+            sensor: sensorKey,
+            unit: sensorData.unit
+          }
+        });
+      } catch (err) {
+        // Ignore "key already exists" error
+        if (!err.message || !err.message.includes("key already exists")) {
+          console.warn(`Unable to create time series: ${err.message}`);
+        }
+      }
+      
+      try {
+        // Add data point
+        await client.ts.add(key, timestampMs, sensorValue);
+      } catch (err) {
+        console.warn(`Unable to add to time series: ${err.message}`);
+        
+        // Fallback to standard Redis if TimeSeries isn't available
+        await client.zAdd(key, {
+          score: timestampMs,
+          value: `${sensorValue}:${sensorData.unit}`
+        });
+        
+        // Set expiration
+        await client.expire(key, 30 * 24 * 60 * 60); // 30 days
+      }
+    }
+
     // Update device connection status and timestamp
     connectedDevices[deviceId] = {
       lastSeen: timestamp,
@@ -556,52 +608,48 @@ app.get('/api/rules/:ruleId/history', async (req, res) => {
 app.get('/api/devices/:deviceId/sensors', async (req, res) => {
   try {
     const { deviceId } = req.params;
-    let foundData = false;
+    const skipOnlineCheck = req.query.skipOnlineCheck === 'true';
     let deviceData;
     
-    // First try Redis
+    // Directly query from Redis without checking connection status
     try {
       deviceData = await getLatestDeviceData(deviceId);
-      if (deviceData) {
-        foundData = true;
-        console.log(`Found ${deviceId} data in Redis`);
-      }
+      console.log(`Found ${deviceId} data in Redis`);
     } catch (redisError) {
       console.error(`Redis error for ${deviceId}:`, redisError);
     }
     
-    // Then try memory cache if Redis didn't have it
-    if (!foundData && deviceData[deviceId]) {
-      deviceData = deviceData[deviceId];
-      foundData = true;
-      console.log(`Found ${deviceId} data in memory cache`);
-    }
-    
-    if (!foundData || !deviceData || !deviceData.sensors) {
-      // Try fetching from log files as last resort
-      const deviceDir = path.join(logsDir, deviceId);
-      if (fs.existsSync(deviceDir)) {
-        const logFiles = fs.readdirSync(deviceDir)
-          .filter(file => file.endsWith('.json'))
-          .sort();
-        
-        if (logFiles.length > 0) {
-          const latestLogFile = logFiles[logFiles.length - 1];
-          try {
-            const logData = JSON.parse(fs.readFileSync(path.join(deviceDir, latestLogFile), 'utf8'));
-            if (logData.length > 0) {
-              deviceData = logData[logData.length - 1];
-              foundData = true;
-              console.log(`Found ${deviceId} data in log files`);
+    // If no data found in Redis, check fallback options
+    if (!deviceData) {
+      // Try memory cache as fallback
+      if (deviceData[deviceId]) {
+        deviceData = deviceData[deviceId];
+        console.log(`Found ${deviceId} data in memory cache`);
+      } else {
+        // Try fetching from log files as last resort
+        const deviceDir = path.join(logsDir, deviceId);
+        if (fs.existsSync(deviceDir)) {
+          const logFiles = fs.readdirSync(deviceDir)
+            .filter(file => file.endsWith('.json'))
+            .sort();
+          
+          if (logFiles.length > 0) {
+            const latestLogFile = logFiles[logFiles.length - 1];
+            try {
+              const logData = JSON.parse(fs.readFileSync(path.join(deviceDir, latestLogFile), 'utf8'));
+              if (logData.length > 0) {
+                deviceData = logData[logData.length - 1];
+                console.log(`Found ${deviceId} data in log files`);
+              }
+            } catch (logError) {
+              console.error(`Error reading log for ${deviceId}:`, logError);
             }
-          } catch (logError) {
-            console.error(`Error reading log for ${deviceId}:`, logError);
           }
         }
       }
     }
     
-    if (!foundData || !deviceData || !deviceData.sensors) {
+    if (!deviceData || !deviceData.sensors) {
       return res.status(404).json({ 
         error: 'No sensor data found for this device',
         deviceId
@@ -851,7 +899,7 @@ io.on('connection', (socket) => {
     console.log(`Socket request for sensors of device: ${deviceId}`);
     
     try {
-      // Try to get latest data from Redis first
+      // Try to get latest data from Redis directly without checking online status
       let deviceData = await getLatestDeviceData(deviceId);
       let source = 'Redis';
       
