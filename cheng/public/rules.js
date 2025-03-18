@@ -47,6 +47,101 @@ let editMode = false;
 let availableDevices = [];
 let searchTimeout = null;
 
+// Function to add debugging controls to the page (for development)
+function addDebuggingTools() {
+  // Create a debug panel
+  const debugPanel = document.createElement('div');
+  debugPanel.style.position = 'fixed';
+  debugPanel.style.bottom = '10px';
+  debugPanel.style.right = '10px';
+  debugPanel.style.padding = '10px';
+  debugPanel.style.background = 'rgba(0,0,0,0.7)';
+  debugPanel.style.color = 'white';
+  debugPanel.style.borderRadius = '5px';
+  debugPanel.style.zIndex = '9999';
+  debugPanel.style.fontSize = '12px';
+  debugPanel.style.maxWidth = '300px';
+  
+  debugPanel.innerHTML = `
+    <div style="margin-bottom:5px;font-weight:bold">Sensor Debugging</div>
+    <div>
+      <button id="debugFetchSensors" style="margin-right:5px">Manual Fetch</button>
+      <button id="debugTogglePanel">Hide</button>
+    </div>
+    <div id="debugOutput" style="margin-top:10px;max-height:150px;overflow-y:auto;font-family:monospace;"></div>
+  `;
+  
+  document.body.appendChild(debugPanel);
+  
+  // Function to log to debug panel
+  window.debugLog = function(message) {
+    const outputDiv = document.getElementById('debugOutput');
+    if (outputDiv) {
+      const time = new Date().toLocaleTimeString();
+      outputDiv.innerHTML += `<div>[${time}] ${message}</div>`;
+      outputDiv.scrollTop = outputDiv.scrollHeight;
+    }
+    console.log(`[DEBUG] ${message}`);
+  };
+  
+  // Add event handlers
+  document.getElementById('debugFetchSensors').addEventListener('click', () => {
+    const device = deviceId.value;
+    if (!device) {
+      window.debugLog('No device selected');
+      return;
+    }
+    
+    window.debugLog(`Manually fetching sensors for ${device}...`);
+    
+    // Try both methods
+    fetch(`/api/devices/${device}/sensors`)
+      .then(res => res.json())
+      .then(data => {
+        window.debugLog(`API: Found ${data.sensors ? data.sensors.length : 0} sensors`);
+        if (data.sensors && data.sensors.length > 0) {
+          populateSensorDropdown(device, data.sensors);
+          window.debugLog('Populated dropdown from API');
+        }
+      })
+      .catch(err => {
+        window.debugLog(`API Error: ${err.message}`);
+      });
+      
+    // Also try socket
+    socket.emit('getSensorsForDevice', device);
+    window.debugLog('Socket request sent');
+  });
+  
+  document.getElementById('debugTogglePanel').addEventListener('click', () => {
+    const outputDiv = document.getElementById('debugOutput');
+    const btn = document.getElementById('debugTogglePanel');
+    
+    if (outputDiv.style.display === 'none') {
+      outputDiv.style.display = 'block';
+      btn.textContent = 'Hide';
+    } else {
+      outputDiv.style.display = 'none';
+      btn.textContent = 'Show';
+    }
+  });
+  
+  // Override socket handler for debugging
+  const originalHandler = socket.on;
+  socket.on = function(event, handler) {
+    if (event === 'deviceSensors') {
+      const wrappedHandler = function(data) {
+        window.debugLog(`Socket received ${event}: ${data.sensors ? data.sensors.length : 0} sensors`);
+        handler(data);
+      };
+      return originalHandler.call(this, event, wrappedHandler);
+    }
+    return originalHandler.call(this, event, handler);
+  };
+  
+  window.debugLog('Debugging tools initialized');
+}
+
 // Initialize the page
 function initPage() {
   // Update time and date
@@ -462,51 +557,86 @@ function loadDeviceSensors() {
     document.querySelector('.rule-type-option[data-type="condition"]').style.opacity = '1';
   }
   
-  // Request sensors from server
-  socket.emit('getSensorsForDevice', device);
+  // Show loading indicator
+  conditionSensor.innerHTML = '<option value="">Loading sensors...</option>';
   
-  // Add a fallback method in case socket request fails
-  // Fetch latest device data using REST API
-  fetch(`/api/current/${device}`)
-    .then(response => {
-      if (!response.ok) {
-        throw new Error('Failed to fetch device data');
-      }
-      return response.json();
-    })
-    .then(data => {
-      if (data && data.sensors) {
-        // Check if conditionSensor is still empty after 2 seconds (socket request might have failed)
+  // First try fetching via the REST API directly (more reliable)
+  fetchSensorsViaAPI(device)
+    .then(sensors => {
+      if (sensors && sensors.length > 0) {
+        populateSensorDropdown(device, sensors);
+      } else {
+        // If API returns no sensors, try socket as fallback
+        socket.emit('getSensorsForDevice', device);
+        
+        // Set a timeout to check if we got a response
         setTimeout(() => {
-          if (conditionSensor.options.length <= 1) {
-            console.log('Using fallback method to load sensors');
-            const sensors = Object.keys(data.sensors).map(sensorKey => ({
-              id: sensorKey,
-              name: sensorKey.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
-              unit: data.sensors[sensorKey].unit
-            }));
-            
-            handleDeviceSensors({ deviceId: device, sensors });
+          if (conditionSensor.options.length <= 1 || 
+              conditionSensor.options[0].text === 'Loading sensors...') {
+            // No response from socket either, show error
+            conditionSensor.innerHTML = '<option value="">No sensors found</option>';
+            showNotification('Could not load sensors for this device', true);
           }
-        }, 2000);
+        }, 3000);
       }
     })
     .catch(error => {
-      console.error('Error fetching device data:', error);
-      showNotification('Error loading sensors. Please try again.', true);
+      console.error('Error fetching sensors:', error);
+      // Try socket as fallback
+      socket.emit('getSensorsForDevice', device);
     });
 }
 
-// Handle device sensors from server
-function handleDeviceSensors({ deviceId, sensors }) {
-  if (deviceId !== document.getElementById('deviceId').value) return;
+// New function to fetch sensors via REST API
+async function fetchSensorsViaAPI(device) {
+  try {
+    const response = await fetch(`/api/current/${device}`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch device data: ${response.statusText}`);
+    }
+    
+    const data = await response.json();
+    console.log('Device data from API:', data);
+    
+    if (!data || !data.sensors) {
+      console.warn('No sensor data in API response');
+      return [];
+    }
+    
+    // Convert to the format expected by handleDeviceSensors
+    const sensors = Object.keys(data.sensors).map(sensorKey => ({
+      id: sensorKey,
+      name: sensorKey.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+      unit: data.sensors[sensorKey].unit
+    }));
+    
+    console.log('Processed sensors:', sensors);
+    return sensors;
+  } catch (error) {
+    console.error('Error in fetchSensorsViaAPI:', error);
+    return [];
+  }
+}
+
+// New function to populate the sensor dropdown
+function populateSensorDropdown(deviceId, sensors) {
+  // Clear dropdown first
+  conditionSensor.innerHTML = '<option value="">Select a sensor</option>';
   
+  if (!sensors || sensors.length === 0) {
+    conditionSensor.innerHTML = '<option value="">No sensors available</option>';
+    return;
+  }
+  
+  // Add each sensor to the dropdown
   sensors.forEach(sensor => {
     const option = document.createElement('option');
     option.value = sensor.id;
     option.textContent = `${sensor.name} (${sensor.unit})`;
     conditionSensor.appendChild(option);
   });
+  
+  console.log(`Added ${sensors.length} sensors to dropdown for device ${deviceId}`);
   
   // Select previously selected sensor if editing
   if (editMode && selectedRuleId) {
@@ -515,6 +645,12 @@ function handleDeviceSensors({ deviceId, sensors }) {
       conditionSensor.value = rule.condition.sensor;
     }
   }
+}
+
+// Handle device sensors from server
+function handleDeviceSensors({ deviceId, sensors }) {
+  if (deviceId !== document.getElementById('deviceId').value) return;
+  populateSensorDropdown(deviceId, sensors);
 }
 
 // Load components for a device
@@ -956,4 +1092,9 @@ function showNotification(message, isError = false) {
 }
 
 // Initialize when DOM is ready
-document.addEventListener('DOMContentLoaded', initPage);
+document.addEventListener('DOMContentLoaded', ()=>{
+  initPage();
+  
+  // Add debugging tools if in development
+  // addDebuggingTools();
+});

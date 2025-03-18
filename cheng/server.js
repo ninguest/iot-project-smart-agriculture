@@ -552,6 +552,82 @@ app.get('/api/rules/:ruleId/history', async (req, res) => {
   }
 });
 
+// New API endpoint to get sensors for a specific device
+app.get('/api/devices/:deviceId/sensors', async (req, res) => {
+  try {
+    const { deviceId } = req.params;
+    let foundData = false;
+    let deviceData;
+    
+    // First try Redis
+    try {
+      deviceData = await getLatestDeviceData(deviceId);
+      if (deviceData) {
+        foundData = true;
+        console.log(`Found ${deviceId} data in Redis`);
+      }
+    } catch (redisError) {
+      console.error(`Redis error for ${deviceId}:`, redisError);
+    }
+    
+    // Then try memory cache if Redis didn't have it
+    if (!foundData && deviceData[deviceId]) {
+      deviceData = deviceData[deviceId];
+      foundData = true;
+      console.log(`Found ${deviceId} data in memory cache`);
+    }
+    
+    if (!foundData || !deviceData || !deviceData.sensors) {
+      // Try fetching from log files as last resort
+      const deviceDir = path.join(logsDir, deviceId);
+      if (fs.existsSync(deviceDir)) {
+        const logFiles = fs.readdirSync(deviceDir)
+          .filter(file => file.endsWith('.json'))
+          .sort();
+        
+        if (logFiles.length > 0) {
+          const latestLogFile = logFiles[logFiles.length - 1];
+          try {
+            const logData = JSON.parse(fs.readFileSync(path.join(deviceDir, latestLogFile), 'utf8'));
+            if (logData.length > 0) {
+              deviceData = logData[logData.length - 1];
+              foundData = true;
+              console.log(`Found ${deviceId} data in log files`);
+            }
+          } catch (logError) {
+            console.error(`Error reading log for ${deviceId}:`, logError);
+          }
+        }
+      }
+    }
+    
+    if (!foundData || !deviceData || !deviceData.sensors) {
+      return res.status(404).json({ 
+        error: 'No sensor data found for this device',
+        deviceId
+      });
+    }
+    
+    // Format the sensors
+    const sensors = Object.keys(deviceData.sensors).map(sensorKey => ({
+      id: sensorKey,
+      name: sensorKey.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+      unit: deviceData.sensors[sensorKey].unit,
+      currentValue: deviceData.sensors[sensorKey].value
+    }));
+    
+    res.json({
+      deviceId,
+      timestamp: deviceData.timestamp,
+      sensors
+    });
+    
+  } catch (error) {
+    console.error(`Error in sensors API for ${req.params.deviceId}:`, error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // Universal send command function that routes to the appropriate implementation
 function sendCommand(deviceId, component, action, value) {
   console.log(`MQTT sendCommand called: ${deviceId}, ${component}, ${action}, ${value}`);
@@ -772,37 +848,44 @@ io.on('connection', (socket) => {
   });
   
   socket.on('getSensorsForDevice', async (deviceId) => {
+    console.log(`Socket request for sensors of device: ${deviceId}`);
+    
     try {
       // Try to get latest data from Redis first
-      const deviceData = await getLatestDeviceData(deviceId);
+      let deviceData = await getLatestDeviceData(deviceId);
+      let source = 'Redis';
       
-      if (deviceData && deviceData.sensors) {
-        const sensors = Object.keys(deviceData.sensors).map(sensorKey => ({
-          id: sensorKey,
-          name: sensorKey.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
-          unit: deviceData.sensors[sensorKey].unit
-        }));
-        
-        socket.emit('deviceSensors', { deviceId, sensors });
-      } else {
-        // Fallback - check if we have it in memory
-        if (deviceData[deviceId] && deviceData[deviceId].sensors) {
-          const sensors = Object.keys(deviceData[deviceId].sensors).map(sensorKey => ({
-            id: sensorKey,
-            name: sensorKey.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
-            unit: deviceData[deviceId].sensors[sensorKey].unit
-          }));
-          
-          socket.emit('deviceSensors', { deviceId, sensors });
-        } else {
-          // No data found
-          console.warn(`No sensor data found for device ${deviceId}`);
-          socket.emit('deviceSensors', { deviceId, sensors: [] });
+      // If not in Redis, check in-memory data
+      if (!deviceData) {
+        console.log(`No data in Redis for ${deviceId}, checking in-memory data`);
+        if (deviceData[deviceId]) {
+          deviceData = deviceData[deviceId];
+          source = 'Memory';
         }
       }
+      
+      if (!deviceData || !deviceData.sensors) {
+        console.warn(`No sensor data found for device ${deviceId} (checked Redis and in-memory)`);
+        socket.emit('deviceSensors', { deviceId, sensors: [], error: 'No sensor data available' });
+        return;
+      }
+      
+      console.log(`Found sensor data for ${deviceId} from ${source}`);
+      
+      // Convert to the expected format
+      const sensors = Object.keys(deviceData.sensors).map(sensorKey => ({
+        id: sensorKey,
+        name: sensorKey.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+        unit: deviceData.sensors[sensorKey].unit
+      }));
+      
+      console.log(`Sending ${sensors.length} sensors for device ${deviceId}`);
+      socket.emit('deviceSensors', { deviceId, sensors });
+      
     } catch (error) {
       console.error(`Error fetching sensors for device ${deviceId}:`, error);
       socket.emit('error', { message: 'Error retrieving sensors' });
+      socket.emit('deviceSensors', { deviceId, sensors: [], error: error.message });
     }
   });
   
