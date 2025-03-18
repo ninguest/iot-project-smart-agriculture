@@ -1089,5 +1089,5 @@ document.addEventListener('DOMContentLoaded', ()=>{
   initPage();
   
   // Add debugging tools if in development
-  addDebuggingTools();
+  // addDebuggingTools();
 });
