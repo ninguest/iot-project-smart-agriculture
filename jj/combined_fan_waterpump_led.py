@@ -7,9 +7,9 @@ import machine
 from machine import Pin, PWM
 
 # Configure your WiFi credentials
-WIFI_SSID = "YING"
-WIFI_PASSWORD = "ChiamXY.2130"
-
+WIFI_SSID = "T"
+WIFI_PASSWORD = "thisispassword123"
+Fan = Pin(15, Pin.OUT)
 # MQTT Configuration
 MQTT_BROKER = "broker.emqx.io"
 MQTT_PORT = 1883
@@ -133,7 +133,16 @@ def process_command(command):
     elif component == "led":
         success, message = process_wled_command(action, value)
 
-    elif 
+    elif component == 'fan':
+        if action == 'power':
+            if value == 'on':
+                Fan.value(1)
+                success = True
+                message = "Fan turned on"
+            elif value == 'off':
+                Fan.value(0)
+                success = True
+                message = "Fan turned off"
 
 
     # Send acknowledgment
