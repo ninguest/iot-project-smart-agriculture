@@ -7,8 +7,10 @@ import machine
 from machine import Pin
 
 # Configure your WiFi credentials
-WIFI_SSID = "WIFI_SSID"
-WIFI_PASSWORD = "WIFI_PASSWORD"
+WIFI_SSID = "yo"
+WIFI_PASSWORD = "pleasestophacking"
+
+gp15 = Pin(15, Pin.OUT)
 
 # MQTT Configuration
 MQTT_BROKER = "broker.emqx.io"
@@ -85,11 +87,11 @@ def process_command(command):
     if component == 'led':
         if action == 'power':
             if value == 'on':
-                led.on()
+                gp15.value(1)
                 success = True
                 message = "LED turned on"
             elif value == 'off':
-                led.off()
+                gp15.value(0)
                 success = True
                 message = "LED turned off"
     

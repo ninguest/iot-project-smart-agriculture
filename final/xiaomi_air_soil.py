@@ -6,8 +6,8 @@ import utime
 from machine import ADC, I2C, Pin
 
 
-SSID = "Anson Phone"
-PASSWORD = "12345678"
+SSID = "T"
+PASSWORD = "thisispassword123"
 
 API_URL = "https://iot.ycstation.work/sensors"
 
