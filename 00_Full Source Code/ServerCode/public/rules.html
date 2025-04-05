@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IoT Rules Manager</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="rules-styles.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.6.1/socket.io.min.js"></script>
+</head>
+<body>
+  <header>
+    <div class="container">
+      <h1><i class="fas fa-cogs"></i> IoT Rules Manager</h1>
+      <div class="header-actions">
+        <a href="/mqtt" class="dashboard-link"><i class="fas fa-exchange-alt"></i> MQTT Monitor</a>
+        <a href="/control" class="dashboard-link"><i class="fas fa-leaf"></i> Device Control</a>
+        <a href="/" class="dashboard-link"><i class="fas fa-chart-line"></i> Back to Dashboard</a>
+        <div class="time-container">
+          <div id="currentTime"></div>
+          <div id="currentDate"></div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <div class="rules-grid">
+      <!-- Rules List Panel -->
+      <section class="panel rules-list-panel">
+        <div class="panel-header">
+          <h2><i class="fas fa-list"></i> Rules</h2>
+          <button id="createRuleBtn" class="btn btn-primary">
+            <i class="fas fa-plus"></i> New Rule
+          </button>
+        </div>
+        <div class="panel-content">
+          <div class="rule-filters">
+            <div class="search-container">
+              <input type="text" id="searchRules" placeholder="Search rules...">
+              <i class="fas fa-search search-icon"></i>
+            </div>
+            <div class="filter-options">
+              <label>
+                <input type="checkbox" id="filterCondition" checked>
+                Condition Rules
+              </label>
+              <label>
+                <input type="checkbox" id="filterSchedule" checked>
+                Schedule Rules
+              </label>
+            </div>
+          </div>
+          <div id="rulesList" class="rules-list">
+            <!-- Rules will be added here dynamically -->
+            <div class="empty-state">
+              <i class="fas fa-tasks"></i>
+              <p>No rules found</p>
+              <p>Click 'New Rule' to create your first rule</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Rule Editor Panel -->
+      <section class="panel rule-editor-panel">
+        <!-- No rule selected message -->
+        <div id="noRuleSelected" class="no-rule-selected">
+          <i class="fas fa-arrow-left"></i>
+          <p>Select a rule from the list or create a new one</p>
+        </div>
+
+        <!-- Rule Editor Content (hidden by default) -->
+        <div id="ruleEditorContent" style="display: none;">
+          <div class="panel-header">
+            <h2 id="ruleEditorTitle"><i class="fas fa-edit"></i> Edit Rule</h2>
+            <div class="rule-status-toggle">
+              <label class="toggle-label">Active</label>
+              <label class="toggle-switch">
+                <input type="checkbox" id="ruleEnabledToggle">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+          
+          <div class="rule-editor-form">
+            <form id="ruleForm">
+              <input type="hidden" id="ruleId">
+              
+              <div class="form-group">
+                <label for="ruleName">Rule Name</label>
+                <input type="text" id="ruleName" placeholder="Enter a name for this rule" required>
+              </div>
+              
+              <div class="form-group">
+                <label for="deviceId">Device</label>
+                <select id="deviceId" required>
+                  <option value="broadcast">Broadcast to All Devices</option>
+                </select>
+                <div class="device-hint" id="broadcastHint" style="display: none; margin-top: 0.5rem; font-size: 0.85rem; color: #7f8c8d;">
+                  <i class="fas fa-info-circle"></i> 
+                  Commands will be sent to all connected devices that support the selected component.
+                </div>
+              </div>
+              
+              <div class="rule-type-selector">
+                <div class="rule-type-option" data-type="condition">
+                  <i class="fas fa-code-branch"></i>
+                  <div class="rule-type-name">Condition</div>
+                  <div class="rule-type-description">Trigger based on sensor readings</div>
+                </div>
+                <div class="rule-type-option" data-type="schedule">
+                  <i class="fas fa-calendar-alt"></i>
+                  <div class="rule-type-name">Schedule</div>
+                  <div class="rule-type-description">Trigger based on time schedule</div>
+                </div>
+              </div>
+              
+              <!-- Condition Rule Section -->
+              <div id="conditionRuleSection" class="rule-section" style="display: none;">
+                <h3><i class="fas fa-code-branch"></i> Condition</h3>
+                
+                <div class="form-row">
+                  <div class="form-col">
+                    <label for="conditionSensor">Sensor</label>
+                    <select id="conditionSensor">
+                      <option value="">Select a sensor</option>
+                    </select>
+                  </div>
+                  <div class="form-col">
+                    <label for="conditionOperator">Operator</label>
+                    <select id="conditionOperator">
+                      <option value=">">Greater than (>)</option>
+                      <option value=">=">Greater than or equal (>=)</option>
+                      <option value="<">Less than (<)</option>
+                      <option value="<=">Less than or equal (<=)</option>
+                      <option value="==">Equal (==)</option>
+                      <option value="!=">Not equal (!=)</option>
+                    </select>
+                  </div>
+                  <div class="form-col">
+                    <label for="conditionValue">Value</label>
+                    <input type="number" id="conditionValue" step="0.01">
+                  </div>
+                </div>
+              </div>
+              
+              <!-- Schedule Rule Section -->
+              <div id="scheduleRuleSection" class="rule-section" style="display: none;">
+                <h3><i class="fas fa-calendar-alt"></i> Schedule</h3>
+                
+                <div class="form-group">
+                  <label for="schedulePattern">Cron Pattern</label>
+                  <input type="text" id="schedulePattern" placeholder="* * * * *">
+                  
+                  <div class="schedule-pattern-help">
+                    <p>Use extended cron pattern format: <code>second minute hour day-of-month month day-of-week</code></p>
+                    
+                    <div class="schedule-examples">
+                      <div><code>0 0 8 * * *</code> - Every day at 8:00 AM</div>
+                      <div><code>0 */15 * * * *</code> - Every 15 minutes</div>
+                      <div><code>0 0 20 * * 1-5</code> - Every weekday at 8:00 PM</div>
+                      <div><code>0 0 0 1 * *</code> - First day of every month at midnight</div>
+                      <div><code>*/30 * * * * *</code> - Every 30 seconds</div>
+                      <div><code>0 0 8,12,18 * * *</code> - Every day at 8 AM, 12 PM, and 6 PM</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <!-- Action Section -->
+              <div class="rule-section" id="standardActionSection">
+                <h3><i class="fas fa-bolt"></i> Action</h3>
+                
+                <div class="form-group">
+                  <label for="actionType">Action Type</label>
+                  <select id="actionType">
+                    <option value="standard">Standard Action</option>
+                    <option value="custom">Custom JSON (Advanced)</option>
+                  </select>
+                </div>
+                
+                <div id="standardActionContent">
+                  <div class="form-row">
+                    <div class="form-col">
+                      <label for="actionComponent">Component</label>
+                      <select id="actionComponent">
+                        <option value="">Select a component</option>
+                      </select>
+                    </div>
+                    <div class="form-col">
+                      <label for="actionCommand">Command</label>
+                      <select id="actionCommand">
+                        <option value="">Select a command</option>
+                      </select>
+                    </div>
+                    <div class="form-col">
+                      <label for="actionValue">Value</label>
+                      <input type="text" id="actionValue">
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <!-- Custom JSON Action Section (initially hidden) -->
+              <div id="customJsonActionSection" class="rule-section" style="display: none;">
+                <h3><i class="fas fa-code"></i> Custom JSON Action</h3>
+                
+                <p class="description">Define a custom JSON command to be sent.</p>
+                
+                <div class="json-editor-container">
+                  <textarea id="actionJsonEditor" class="json-editor" rows="8" spellcheck="false">
+{
+  "component": "led",
+  "action": "power",
+  "value": "on",
+  "broadcast": true
+}</textarea>
+                </div>
+                
+                <div class="json-editor-actions">
+                  <button type="button" id="formatJsonBtn" class="btn btn-outline">
+                    <i class="fas fa-indent"></i> Format JSON
+                  </button>
+                </div>
+                
+                <div class="custom-json-help">
+                  <p>Tips:</p>
+                  <ul>
+                    <li>Set <code>broadcast: true</code> to send to all devices</li>
+                    <li>For a specific device, use the selected device above</li>
+                    <li>Common components: <code>led</code>, <code>fan</code>, <code>pump</code></li>
+                    <li>Common actions: <code>power</code> (value: "on"/"off"), <code>speed</code> (value: 0-100)</li>
+                  </ul>
+                </div>
+              </div>
+              
+              <div class="form-buttons">
+                <button type="button" id="cancelBtn" class="btn btn-outline">
+                  <i class="fas fa-times"></i> Cancel
+                </button>
+                <button type="button" id="deleteRuleBtn" class="btn btn-danger">
+                  <i class="fas fa-trash"></i> Delete
+                </button>
+                <button type="submit" class="btn btn-success">
+                  <i class="fas fa-save"></i> Save Rule
+                </button>
+              </div>
+            </form>
+            
+            <!-- Rule Execution History -->
+            <div id="ruleHistorySection" style="display: none;">
+              <h3 class="history-header"><i class="fas fa-history"></i> Execution History</h3>
+              <div id="ruleHistory" class="rule-history">
+                <!-- History entries will be added here -->
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <footer>
+    <div class="container">
+      <p>Smart Agriculture IoT Rules Manager</p>
+    </div>
+  </footer>
+
+  <!-- Notification -->
+  <div id="notification" class="notification">
+    <div class="notification-content">
+      <i class="fas fa-check-circle"></i>
+      <span id="notificationMessage">Rule saved successfully</span>
+    </div>
+  </div>
+
+  <script src="rules.js"></script>
+</body>
+</html>

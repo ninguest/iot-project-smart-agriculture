@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Device Control Panel</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.6.1/socket.io.min.js"></script>
+    <style>
+        :root {
+            --primary-color: #2c3e50;
+            --secondary-color: #3498db;
+            --accent-color: #27ae60;
+            --warning-color: #e67e22;
+            --danger-color: #e74c3c;
+            --light-color: #ecf0f1;
+            --dark-color: #34495e;
+            --background-color: #f5f7fa;
+            --card-color: #ffffff;
+            --text-color: #2c3e50;
+            --border-color: #dce0e6;
+            --hover-color: #f0f4f8;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            background-color: var(--background-color);
+            color: var(--text-color);
+            line-height: 1.6;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            background-color: var(--primary-color);
+            color: white;
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            margin-bottom: 2rem;
+        }
+
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .nav-link {
+            color: white;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            background-color: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+            transition: background-color 0.2s;
+        }
+
+        .nav-link:hover {
+            background-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .device-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+        }
+
+        .device-selector {
+            grid-column: 1 / -1;
+            margin-bottom: 1rem;
+        }
+
+        .device-selector select {
+            padding: 10px;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+            font-size: 1rem;
+            width: 100%;
+            max-width: 300px;
+        }
+
+        .card {
+            background-color: var(--card-color);
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            padding: 1.5rem;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        .card-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 1.5rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .card-header i {
+            font-size: 1.8rem;
+            margin-right: 1rem;
+            color: var(--secondary-color);
+        }
+
+        .card-header h2 {
+            font-size: 1.5rem;
+            margin: 0;
+        }
+
+        .status-indicator {
+            margin-left: auto;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background-color: var(--danger-color);
+        }
+
+        .status-indicator.on {
+            background-color: var(--accent-color);
+        }
+
+        .control-group {
+            margin-bottom: 1.5rem;
+        }
+
+        .control-group:last-child {
+            margin-bottom: 0;
+        }
+
+        .control-group h3 {
+            margin-bottom: 0.5rem;
+            font-size: 1.1rem;
+            color: var(--dark-color);
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 1rem;
+        }
+
+        .btn {
+            padding: 0.8rem 1.5rem;
+            border: none;
+            border-radius: 4px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            flex: 1;
+        }
+
+        .btn-primary {
+            background-color: var(--secondary-color);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background-color: #2980b9;
+        }
+
+        .btn-success {
+            background-color: var(--accent-color);
+            color: white;
+        }
+
+        .btn-success:hover {
+            background-color: #219653;
+        }
+
+        .btn-danger {
+            background-color: var(--danger-color);
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background-color: #c0392b;
+        }
+
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .slider {
+            flex: 1;
+            -webkit-appearance: none;
+            appearance: none;
+            height: 8px;
+            border-radius: 4px;
+            background: var(--border-color);
+            outline: none;
+        }
+
+        .slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: var(--secondary-color);
+            cursor: pointer;
+        }
+
+        .slider::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: var(--secondary-color);
+            cursor: pointer;
+            border: none;
+        }
+
+        .slider-value {
+            min-width: 40px;
+            text-align: center;
+            font-weight: bold;
+        }
+
+        .color-picker-container {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+
+        .color-preset {
+            width: 30px;
+            height: 30px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: transform 0.2s;
+            border: 2px solid transparent;
+        }
+
+        .color-preset:hover {
+            transform: scale(1.1);
+        }
+
+        .color-preset.active {
+            border-color: var(--dark-color);
+        }
+
+        #custom-color {
+            width: 40px;
+            height: 40px;
+            padding: 0;
+            border: none;
+            background: none;
+            cursor: pointer;
+        }
+
+        .notification {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background-color: var(--accent-color);
+            color: white;
+            padding: 12px 20px;
+            border-radius: 4px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            display: none;
+            transform: translateY(100px);
+            transition: transform 0.3s ease-out;
+        }
+
+        .notification.show {
+            display: block;
+            transform: translateY(0);
+        }
+
+        .notification.error {
+            background-color: var(--danger-color);
+        }
+
+        .notification-content {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .notification-content i {
+            font-size: 1.2rem;
+        }
+
+        footer {
+            background-color: var(--primary-color);
+            color: white;
+            padding: 1rem 0;
+            text-align: center;
+            font-size: 0.9rem;
+            margin-top: 2rem;
+        }
+
+        .mqtt-status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.9rem;
+            margin-left: 1rem;
+        }
+
+        @media (max-width: 768px) {
+            .device-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .header-actions {
+                display: none;
+            }
+            
+            .card {
+                margin-bottom: 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1><i class="fas fa-leaf"></i> Device Control Panel</h1>
+        <div class="header-actions">
+            <a href="/mqtt" class="nav-link"><i class="fas fa-exchange-alt"></i> MQTT Monitor</a>
+            <a href="/rules" class="nav-link"><i class="fas fa-cogs"></i> Rules Manager</a>
+            <a href="/" class="nav-link"><i class="fas fa-chart-line"></i> Dashboard</a>
+            <div id="mqtt-connection" class="mqtt-status">
+                <span>MQTT:</span>
+                <span id="mqtt-indicator" style="color: #e74c3c;">Disconnected</span>
+            </div>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="device-grid">
+            <div class="device-selector">
+                <select id="device-selector">
+                    <option value="broadcast">All Devices</option>
+                    <!-- Devices will be loaded dynamically -->
+                </select>
+            </div>
+
+            <!-- LED Card -->
+            <div class="card">
+                <div class="card-header">
+                    <i class="fas fa-lightbulb"></i>
+                    <h2>LED Control</h2>
+                    <div id="led-status" class="status-indicator"></div>
+                </div>
+                
+                <div class="control-group">
+                    <h3>Power</h3>
+                    <div class="btn-group">
+                        <button id="led-on" class="btn btn-success">
+                            <i class="fas fa-power-off"></i> ON
+                        </button>
+                        <button id="led-off" class="btn btn-danger">
+                            <i class="fas fa-power-off"></i> OFF
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="control-group">
+                    <h3>Brightness</h3>
+                    <div class="slider-container">
+                        <input type="range" id="brightness-slider" class="slider" min="0" max="100" value="50">
+                        <span id="brightness-value" class="slider-value">50%</span>
+                    </div>
+                </div>
+                
+                <div class="control-group">
+                    <h3>Color</h3>
+                    <div class="color-picker-container">
+                        <div class="color-preset" style="background-color: #FF0000;" data-color="#FF0000"></div>
+                        <div class="color-preset" style="background-color: #00FF00;" data-color="#00FF00"></div>
+                        <div class="color-preset" style="background-color: #0000FF;" data-color="#0000FF"></div>
+                        <div class="color-preset" style="background-color: #FFFF00;" data-color="#FFFF00"></div>
+                        <div class="color-preset" style="background-color: #00FFFF;" data-color="#00FFFF"></div>
+                        <div class="color-preset" style="background-color: #FF00FF;" data-color="#FF00FF"></div>
+                        <div class="color-preset" style="background-color: #FFFFFF;" data-color="#FFFFFF"></div>
+                        <input type="color" id="custom-color" value="#FF0000">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Fan Card -->
+            <div class="card">
+                <div class="card-header">
+                    <i class="fas fa-fan"></i>
+                    <h2>Fan Control</h2>
+                    <div id="fan-status" class="status-indicator"></div>
+                </div>
+                
+                <div class="control-group">
+                    <h3>Power</h3>
+                    <div class="btn-group">
+                        <button id="fan-on" class="btn btn-success">
+                            <i class="fas fa-power-off"></i> ON
+                        </button>
+                        <button id="fan-off" class="btn btn-danger">
+                            <i class="fas fa-power-off"></i> OFF
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="control-group">
+                    <h3>Speed</h3>
+                    <div class="slider-container">
+                        <input type="range" id="fan-speed-slider" class="slider" min="0" max="100" value="50">
+                        <span id="fan-speed-value" class="slider-value">50%</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pump Card -->
+            <div class="card">
+                <div class="card-header">
+                    <i class="fas fa-tint"></i>
+                    <h2>Pump Control</h2>
+                    <div id="pump-status" class="status-indicator"></div>
+                </div>
+                
+                <div class="control-group">
+                    <h3>Power</h3>
+                    <div class="btn-group">
+                        <button id="pump-on" class="btn btn-success">
+                            <i class="fas fa-power-off"></i> ON
+                        </button>
+                        <button id="pump-off" class="btn btn-danger">
+                            <i class="fas fa-power-off"></i> OFF
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="control-group">
+                    <h3>Run Timer</h3>
+                    <div class="btn-group">
+                        <button id="pump-run-30s" class="btn btn-primary">30s</button>
+                        <button id="pump-run-1m" class="btn btn-primary">1m</button>
+                        <button id="pump-run-5m" class="btn btn-primary">5m</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="notification" class="notification">
+        <div class="notification-content">
+            <i class="fas fa-check-circle"></i>
+            <span id="notification-message">Command sent successfully</span>
+        </div>
+    </div>
+
+    <footer>
+        <div class="container">
+            <p>Smart Agriculture IoT Control Panel</p>
+        </div>
+    </footer>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // Connect to Socket.IO
+            const socket = io();
+            
+            // DOM Elements
+            const deviceSelector = document.getElementById('device-selector');
+            const notification = document.getElementById('notification');
+            const notificationMessage = document.getElementById('notification-message');
+            const mqttIndicator = document.getElementById('mqtt-indicator');
+            
+            // LED Control Elements
+            const ledStatus = document.getElementById('led-status');
+            const ledOnBtn = document.getElementById('led-on');
+            const ledOffBtn = document.getElementById('led-off');
+            const brightnessSlider = document.getElementById('brightness-slider');
+            const brightnessValue = document.getElementById('brightness-value');
+            const colorPresets = document.querySelectorAll('.color-preset');
+            const customColor = document.getElementById('custom-color');
+            
+            // Fan Control Elements
+            const fanStatus = document.getElementById('fan-status');
+            const fanOnBtn = document.getElementById('fan-on');
+            const fanOffBtn = document.getElementById('fan-off');
+            const fanSpeedSlider = document.getElementById('fan-speed-slider');
+            const fanSpeedValue = document.getElementById('fan-speed-value');
+            
+            // Pump Control Elements
+            const pumpStatus = document.getElementById('pump-status');
+            const pumpOnBtn = document.getElementById('pump-on');
+            const pumpOffBtn = document.getElementById('pump-off');
+            const pumpRun30sBtn = document.getElementById('pump-run-30s');
+            const pumpRun1mBtn = document.getElementById('pump-run-1m');
+            const pumpRun5mBtn = document.getElementById('pump-run-5m');
+            
+            // State tracking
+            let currentLedColor = '#FF0000';
+            let deviceStatus = {};
+            
+            // Socket.IO Event Listeners
+            socket.on('connect', () => {
+                console.log('Connected to server');
+                
+                // Request MQTT status
+                socket.emit('getMqttStatus');
+                
+                // Request device list
+                socket.emit('getPicoDevices');
+            });
+            
+            socket.on('disconnect', () => {
+                console.log('Disconnected from server');
+                updateMqttStatus(false);
+            });
+            
+            // Handle MQTT Status
+            socket.on('mqttStatus', (status) => {
+                updateMqttStatus(status.connected);
+            });
+            
+            // Handle device list
+            socket.on('picoDevices', (devices) => {
+                // Clear existing options except the first (broadcast)
+                while (deviceSelector.options.length > 1) {
+                    deviceSelector.remove(1);
+                }
+                
+                // Add devices to select
+                devices.forEach(device => {
+                    const option = document.createElement('option');
+                    option.value = device.device_id;
+                    option.textContent = device.device_id;
+                    deviceSelector.appendChild(option);
+                });
+            });
+            
+            // Handle device status updates
+            socket.on('deviceStatus', (statuses) => {
+                deviceStatus = statuses;
+                updateDeviceStatusIndicators();
+            });
+            
+            // Handle command results
+            socket.on('commandResult', (result) => {
+                // Show notification
+                showNotification(`Command ${result.success ? 'executed successfully' : 'failed'}: ${result.component}.${result.action}`);
+            });
+            
+            // Function to send MQTT command
+            function sendCommand(component, action, value) {
+                const deviceId = deviceSelector.value;
+                
+                // Check if broadcasting or sending to specific device
+                if (deviceId === 'broadcast') {
+                    socket.emit('broadcastCommand', {
+                        component,
+                        action,
+                        value
+                    });
+                    showNotification(`Broadcast command sent: ${component}.${action}=${value}`);
+                } else {
+                    socket.emit('sendCommand', {
+                        deviceId,
+                        component,
+                        action,
+                        value
+                    });
+                    showNotification(`Command sent to ${deviceId}: ${component}.${action}=${value}`);
+                }
+            }
+            
+            // Update MQTT Status Indicator
+            function updateMqttStatus(connected) {
+                if (connected) {
+                    mqttIndicator.textContent = 'Connected';
+                    mqttIndicator.style.color = '#27ae60';
+                } else {
+                    mqttIndicator.textContent = 'Disconnected';
+                    mqttIndicator.style.color = '#e74c3c';
+                }
+            }
+            
+            // Update device status indicators
+            function updateDeviceStatusIndicators() {
+                const deviceId = deviceSelector.value;
+                
+                // If broadcasting, don't show status indicators
+                if (deviceId === 'broadcast') {
+                    ledStatus.className = 'status-indicator';
+                    fanStatus.className = 'status-indicator';
+                    pumpStatus.className = 'status-indicator';
+                    return;
+                }
+                
+                // Check if device is online
+                const deviceInfo = deviceStatus[deviceId];
+                const isOnline = deviceInfo && deviceInfo.status === 'online';
+                
+                // Update status indicators based on online status
+                // For a real application, you would use actual component statuses
+                ledStatus.className = isOnline ? 'status-indicator' : 'status-indicator';
+                fanStatus.className = isOnline ? 'status-indicator' : 'status-indicator';
+                pumpStatus.className = isOnline ? 'status-indicator' : 'status-indicator';
+            }
+            
+            // Show notification
+            function showNotification(message, isError = false) {
+                notificationMessage.textContent = message;
+                notification.className = isError ? 'notification error show' : 'notification show';
+                
+                // Hide after 3 seconds
+                setTimeout(() => {
+                    notification.className = isError ? 'notification error' : 'notification';
+                }, 3000);
+            }
+            
+            // Event handlers for device selector
+            deviceSelector.addEventListener('change', () => {
+                updateDeviceStatusIndicators();
+            });
+            
+            // LED Control Event Handlers
+            ledOnBtn.addEventListener('click', () => {
+                sendCommand('led', 'power', 'on');
+                ledStatus.classList.add('on');
+            });
+            
+            ledOffBtn.addEventListener('click', () => {
+                sendCommand('led', 'power', 'off');
+                ledStatus.classList.remove('on');
+            });
+            
+            brightnessSlider.addEventListener('input', () => {
+                const value = brightnessSlider.value;
+                brightnessValue.textContent = `${value}%`;
+            });
+            
+            brightnessSlider.addEventListener('change', () => {
+                const value = brightnessSlider.value;
+                sendCommand('led', 'brightness', value);
+            });
+            
+            // Color preset handling
+            colorPresets.forEach(preset => {
+                preset.addEventListener('click', () => {
+                    // Remove active class from all presets
+                    colorPresets.forEach(p => p.classList.remove('active'));
+                    
+                    // Add active class to clicked preset
+                    preset.classList.add('active');
+                    
+                    // Get color and update custom color input
+                    const color = preset.dataset.color;
+                    customColor.value = color;
+                    currentLedColor = color;
+                    
+                    // Send command
+                    sendCommand('led', 'color', color);
+                });
+            });
+            
+            // Custom color handling
+            customColor.addEventListener('change', () => {
+                const color = customColor.value;
+                currentLedColor = color;
+                
+                // Remove active class from all presets
+                colorPresets.forEach(preset => preset.classList.remove('active'));
+                
+                // Send command
+                sendCommand('led', 'color', color);
+            });
+            
+            // Fan Control Event Handlers
+            fanOnBtn.addEventListener('click', () => {
+                sendCommand('fan', 'power', 'on');
+                fanStatus.classList.add('on');
+            });
+            
+            fanOffBtn.addEventListener('click', () => {
+                sendCommand('fan', 'power', 'off');
+                fanStatus.classList.remove('on');
+            });
+            
+            fanSpeedSlider.addEventListener('input', () => {
+                const value = fanSpeedSlider.value;
+                fanSpeedValue.textContent = `${value}%`;
+            });
+            
+            fanSpeedSlider.addEventListener('change', () => {
+                const value = fanSpeedSlider.value;
+                sendCommand('fan', 'speed', value);
+            });
+            
+            // Pump Control Event Handlers
+            pumpOnBtn.addEventListener('click', () => {
+                sendCommand('pump', 'power', 'on');
+                pumpStatus.classList.add('on');
+            });
+            
+            pumpOffBtn.addEventListener('click', () => {
+                sendCommand('pump', 'power', 'off');
+                pumpStatus.classList.remove('on');
+            });
+            
+            pumpRun30sBtn.addEventListener('click', () => {
+                sendCommand('pump', 'run', '30');
+                pumpStatus.classList.add('on');
+                
+                // Auto reset after 30 seconds
+                setTimeout(() => {
+                    pumpStatus.classList.remove('on');
+                }, 30000);
+            });
+            
+            pumpRun1mBtn.addEventListener('click', () => {
+                sendCommand('pump', 'run', '60');
+                pumpStatus.classList.add('on');
+                
+                // Auto reset after 1 minute
+                setTimeout(() => {
+                    pumpStatus.classList.remove('on');
+                }, 60000);
+            });
+            
+            pumpRun5mBtn.addEventListener('click', () => {
+                sendCommand('pump', 'run', '300');
+                pumpStatus.classList.add('on');
+                
+                // Auto reset after 5 minutes
+                setTimeout(() => {
+                    pumpStatus.classList.remove('on');
+                }, 300000);
+            });
+        });
+    </script>
+</body>
+</html>
